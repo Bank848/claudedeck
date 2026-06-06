@@ -159,10 +159,22 @@ export default function App(): JSX.Element {
     if (tryRename(t)) return
     let cmd = t
     if (settings.requireWakeWord) {
-      const name = settings.assistantName.trim().toLowerCase()
-      const idx = name ? t.toLowerCase().indexOf(name) : -1
-      if (idx === -1) return // name not spoken → ignore (avoids misfires)
-      cmd = t.slice(idx + name.length).trim() || t
+      // Accept EITHER the assistant's name or the selected voice's name.
+      const names = [settings.assistantName, settings.voiceName]
+        .map((n) => n.trim().toLowerCase())
+        .filter(Boolean)
+      const lt = t.toLowerCase()
+      let start = -1
+      let end = -1
+      for (const n of names) {
+        const i = lt.indexOf(n)
+        if (i !== -1 && (start === -1 || i < start)) {
+          start = i
+          end = i + n.length
+        }
+      }
+      if (start === -1) return // no wake word spoken → ignore
+      cmd = t.slice(end).trim() || t
     }
     dispatchCommand(liveCommands, cmd, voiceCode)
   }

@@ -72,6 +72,7 @@ export default function SettingsView(): JSX.Element {
     update('voiceURI', voiceURI)
     update('speechPitch', p.pitch)
     update('speechRate', p.rate)
+    update('voiceName', p.name)
     speak(sample, { rate: p.rate, pitch: p.pitch, voiceURI, lang: resolveLang(settings.voiceLang).code })
   }
 
@@ -224,6 +225,7 @@ export default function SettingsView(): JSX.Element {
                       type="button"
                       onClick={() => {
                         update('edgeVoice', v.id)
+                        update('voiceName', v.name)
                         void edgeSpeak(sample, {
                           voice: v.id,
                           rate: settings.speechRate,
@@ -266,7 +268,10 @@ export default function SettingsView(): JSX.Element {
                       <button
                         key={v.id}
                         type="button"
-                        onClick={() => update('fishReferenceId', v.id)}
+                        onClick={() => {
+                          update('fishReferenceId', v.id)
+                          update('voiceName', v.name)
+                        }}
                         title={v.vibe}
                         className={`flex flex-col items-start rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
                           active
@@ -348,7 +353,7 @@ export default function SettingsView(): JSX.Element {
 
           <Row
             label="Assistant name"
-            desc='Say this name before a command, e.g. “เด็ค เปิดตั้งค่า”. You can also rename by voice: “เปลี่ยนชื่อเป็น มิกุ”.'
+            desc={`Call it by this name OR the selected voice's name${settings.voiceName ? ` (“${settings.voiceName}”)` : ''} — e.g. “กุ้ง เปิดตั้งค่า”. Rename by voice: “เปลี่ยนชื่อเป็น …”.`}
           >
             <input
               aria-label="Assistant name"

@@ -21,6 +21,8 @@ export interface Settings {
   voiceCommands: boolean
   /** The assistant's spoken name (user can rename by voice). */
   assistantName: string
+  /** Name of the currently selected voice — also works as a wake word. */
+  voiceName: string
   /** Require saying the name before a command (call-sign mode, avoids misfires). */
   requireWakeWord: boolean
   /** Language for the voice assistant (recognition + spoken replies). */
@@ -56,6 +58,7 @@ const DEFAULTS: Settings = {
   speechToText: true,
   voiceCommands: false,
   assistantName: 'กุ้ง',
+  voiceName: '',
   requireWakeWord: true,
   voiceLang: 'auto',
   sttEngine: 'browser',
