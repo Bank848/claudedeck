@@ -1,29 +1,20 @@
 /**
  * Unified speak() that routes to the chosen TTS engine:
  *  - 'system' → built-in SpeechSynthesis voices (offline, instant, pitch personas)
- *  - 'fish'   → local fish-speech server (Miku/anime), with system fallback on error
+ *  - 'edge'   → free Edge-TTS neural voices (online, no key), system fallback on error
  *
- * SettingsContext publishes the current engine config via setTtsConfig().
+ * Both engines work out of the box for any user. SettingsContext publishes the
+ * current config via setTtsConfig().
  */
 import { speak as systemSpeak, cancelSpeech as cancelSystem, isSpeechSupported } from './speech'
-import { fishSpeak, stopFish } from './fishTts'
 import { edgeSpeak, stopEdge } from './edgeTts'
 
 interface TtsConfig {
-  engine: 'system' | 'edge' | 'fish'
+  engine: 'system' | 'edge'
   edgeVoice: string
-  fishUrl: string
-  fishReferenceId: string
-  fishApiKey: string
 }
 
-let cfg: TtsConfig = {
-  engine: 'system',
-  edgeVoice: 'th-TH-PremwadeeNeural',
-  fishUrl: '',
-  fishReferenceId: '',
-  fishApiKey: '',
-}
+let cfg: TtsConfig = { engine: 'system', edgeVoice: 'th-TH-PremwadeeNeural' }
 
 export function setTtsConfig(c: TtsConfig): void {
   cfg = c
@@ -48,18 +39,10 @@ export function speakSmart(text: string, opts: SpeakOpts = {}): Promise<void> {
       systemSpeakPromise(text, opts),
     )
   }
-  if (cfg.engine === 'fish' && cfg.fishUrl) {
-    return fishSpeak(text, {
-      url: cfg.fishUrl,
-      referenceId: cfg.fishReferenceId,
-      apiKey: cfg.fishApiKey,
-    }).catch(() => systemSpeakPromise(text, opts))
-  }
   return systemSpeakPromise(text, opts)
 }
 
 export function cancelSmart(): void {
   stopEdge()
-  stopFish()
   cancelSystem()
 }

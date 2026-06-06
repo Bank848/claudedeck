@@ -3,12 +3,16 @@
 Backlog of planned work (not yet built). Phase 1 (design-first UI) is done.
 
 ## Voice / TTS
-- **Decide engine for Thai + anime voice** (in progress):
-  - System (Microsoft Pattara) — Thai, offline, works now (pitch personas).
-  - Fish Audio **cloud** (S2) — Miku/anime + Thai, needs API key, free tier ~7 min/month.
-  - **F5-TTS-THAI** (local, GPU ~8–12GB) — Thai + clone any voice (e.g. Miku from a clip).
-  - **Edge-TTS** (free, no key, online) — neural Thai voices, unlimited-ish, not anime.
-  - fish-speech self-host — rejected: needs 24GB GPU + Linux/WSL and has **no Thai**.
+Principle: **must work out of the box for any user** — no servers, GPUs, or API keys.
+
+Shipping now (ready-to-use):
+- **System** (e.g. Microsoft Pattara) — Thai, fully offline, instant. Pitch personas (incl. มิกุ-style bright).
+- **Edge-TTS** (free, no key, unlimited, online) — neural Thai + English/JP voices. Pitch up for anime-ish tone.
+
+Not shipped (need setup → not ready-to-use; revisit only if made one-click):
+- fish-speech / Fish Audio cloud (Miku/anime) — removed: needs GPU server or API key.
+- F5-TTS-THAI (local Thai + voice clone) — needs GPU.
+- Real "Miku" timbre free+unlimited — no ready-to-use option exists (FakeYou is free but slow/queued).
 
 ## Update system (later)
 - On launch, check **GitHub Releases** (latest tag) vs current `package.json` version.

@@ -16,9 +16,6 @@ npm-debug.log*
 .env.*
 !.env.example
 
-# Personal local backend launcher (copy from tools/fish-server.example.bat)
-tools/fish-server.bat
-
 # OS / editor
 .DS_Store
 Thumbs.db

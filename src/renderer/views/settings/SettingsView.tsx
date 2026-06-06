@@ -13,9 +13,7 @@ import {
 import { isDictationSupported } from '@/settings/speechRecognition'
 import { useAudioInputs, useMicLevel } from '@/settings/audioDevices'
 import { speakSmart } from '@/settings/tts'
-import { fishHealth } from '@/settings/fishTts'
 import { EDGE_VOICES, edgeSpeak } from '@/settings/edgeTts'
-import { FISH_VOICES } from '@/mock/fixtures'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
 
 export default function SettingsView(): JSX.Element {
@@ -38,8 +36,6 @@ export default function SettingsView(): JSX.Element {
   const dictationOk = isDictationSupported()
   const sample = resolveLang(settings.voiceLang).short === 'th' ? 'สวัสดีครับ นี่คือเสียงผู้ช่วย' : 'Hi, this is your assistant voice.'
 
-  const [fishStatus, setFishStatus] = useState('')
-
   const testVoice = (): void =>
     void speakSmart(sample, {
       rate: settings.speechRate,
@@ -47,24 +43,6 @@ export default function SettingsView(): JSX.Element {
       voiceURI: settings.voiceURI,
       lang: resolveLang(settings.voiceLang).code,
     })
-
-  const testFish = async (): Promise<void> => {
-    setFishStatus('กำลังพูด…')
-    // Health check is best-effort (cloud may not expose it without auth).
-    if (!settings.fishApiKey) {
-      const ok = await fishHealth(settings.fishUrl)
-      if (!ok) {
-        setFishStatus('เชื่อมต่อ server ไม่ได้')
-        return
-      }
-    }
-    try {
-      await speakSmart(sample, { lang: resolveLang(settings.voiceLang).code })
-      setFishStatus('สำเร็จ ✓')
-    } catch {
-      setFishStatus('ผิดพลาด')
-    }
-  }
 
   const applyPreset = (p: VoicePreset): void => {
     const langShort = resolveLang(settings.voiceLang).short
@@ -194,11 +172,9 @@ export default function SettingsView(): JSX.Element {
           <Row
             label="Engine"
             desc={
-              settings.ttsEngine === 'fish'
-                ? 'fish-speech (local server) — Miku/anime. Falls back to system voice if offline.'
-                : settings.ttsEngine === 'edge'
-                  ? 'Edge-TTS — free neural voices (incl. Thai), no API key, unlimited. Needs internet.'
-                  : 'System voices with pitch personas — instant & offline.'
+              settings.ttsEngine === 'edge'
+                ? 'Edge-TTS — free neural voices (incl. Thai), no API key, unlimited. Needs internet.'
+                : 'System voices with pitch personas — instant & offline.'
             }
           >
             <Segmented
@@ -208,7 +184,6 @@ export default function SettingsView(): JSX.Element {
               options={[
                 { value: 'system', label: 'System' },
                 { value: 'edge', label: 'Edge-TTS (free)' },
-                { value: 'fish', label: 'fish-speech' },
               ]}
             />
           </Row>
@@ -247,94 +222,6 @@ export default function SettingsView(): JSX.Element {
                 Free, no key, unlimited. Tip: raise Pitch above for a brighter, anime-ish tone.
               </p>
             </div>
-          )}
-
-          {settings.ttsEngine === 'fish' && (
-            <>
-              <Row label="Server URL" desc="Where your fish-speech server is running.">
-                <input
-                  aria-label="fish-speech server URL"
-                  value={settings.fishUrl}
-                  onChange={(e) => update('fishUrl', e.target.value)}
-                  className="w-56 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
-                />
-              </Row>
-              <div className="border-b border-border px-4 py-3">
-                <div className="mb-2 text-sm font-medium text-fg">Anime / Miku voices</div>
-                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                  {FISH_VOICES.map((v) => {
-                    const active = settings.fishReferenceId === v.id
-                    return (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => {
-                          update('fishReferenceId', v.id)
-                          update('voiceName', v.name)
-                        }}
-                        title={v.vibe}
-                        className={`flex flex-col items-start rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
-                          active
-                            ? 'border-accent bg-accent/10'
-                            : 'border-border bg-bg hover:border-border-strong'
-                        }`}
-                      >
-                        <span className="text-sm font-medium text-fg">{v.name}</span>
-                        <span className="truncate text-[10px] text-fg-muted">{v.vibe}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <Row
-                label="Reference id"
-                desc="Auto-filled by the buttons above, or paste a custom voice id."
-              >
-                <input
-                  aria-label="fish-speech reference id"
-                  value={settings.fishReferenceId}
-                  onChange={(e) => update('fishReferenceId', e.target.value)}
-                  placeholder="(default)"
-                  className="w-56 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
-                />
-              </Row>
-
-              <Row
-                label="API key (cloud)"
-                desc="Set to use Fish Audio cloud (api.fish.audio) where these voices live. Leave blank for self-host."
-              >
-                <input
-                  aria-label="fish-speech API key"
-                  type="password"
-                  value={settings.fishApiKey}
-                  onChange={(e) => update('fishApiKey', e.target.value)}
-                  placeholder="(self-host)"
-                  className="w-56 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
-                />
-              </Row>
-              <Row label="Test fish-speech" desc="Check the server and play a sample.">
-                <div className="flex items-center gap-2">
-                  {fishStatus && <span className="text-xs text-fg-muted">{fishStatus}</span>}
-                  <button
-                    type="button"
-                    onClick={() => void testFish()}
-                    className="flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
-                  >
-                    <Play size={13} />
-                    Test
-                  </button>
-                </div>
-              </Row>
-              <p className="px-4 py-3 text-xs text-fg-muted">
-                <strong className="text-fg">Cloud:</strong> set URL to{' '}
-                <code className="text-fg">https://api.fish.audio</code> + paste an API key (free
-                credit) — the voices above work instantly.{' '}
-                <strong className="text-fg">Self-host (GPU):</strong>{' '}
-                <code className="text-fg">python tools/api_server.py --listen 0.0.0.0:8080</code> and
-                import the reference clips.
-              </p>
-            </>
           )}
         </Section>
 
