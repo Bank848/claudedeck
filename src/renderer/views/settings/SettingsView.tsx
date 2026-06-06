@@ -218,8 +218,28 @@ export default function SettingsView(): JSX.Element {
                   )
                 })}
               </div>
+              <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
+                <span className="text-xs text-fg-muted">One-tap:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    update('edgeVoice', 'en-US-AnaNeural')
+                    update('speechPitch', 1.6)
+                    update('speechRate', 1.08)
+                    update('voiceName', 'มิกุ')
+                    void edgeSpeak('Hi! I am Miku, your assistant.', {
+                      voice: 'en-US-AnaNeural',
+                      rate: 1.08,
+                      pitch: 1.6,
+                    }).catch(() => undefined)
+                  }}
+                  className="rounded-full border border-accent bg-accent/10 px-3 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                >
+                  มิกุ ✨ (Ana + สดใส)
+                </button>
+              </div>
               <p className="mt-2 text-xs text-fg-muted">
-                Free, no key, unlimited. Tip: raise Pitch above for a brighter, anime-ish tone.
+                Free, no key, unlimited. Tip: raise Pitch for a brighter, anime-ish tone.
               </p>
             </div>
           )}
