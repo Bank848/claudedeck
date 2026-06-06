@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+edge-tts
+pydub
+rvc-python
+# PyTorch: install the CUDA build that matches your GPU from https://pytorch.org
+# e.g. pip install torch --index-url https://download.pytorch.org/whl/cu121

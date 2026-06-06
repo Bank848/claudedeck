@@ -11,6 +11,11 @@ dist-electron/
 *.log
 npm-debug.log*
 
+# Miku voice server (local Python env + downloaded models)
+miku-server/.venv/
+miku-server/models/
+__pycache__/
+
 # Env / secrets
 .env
 .env.*
