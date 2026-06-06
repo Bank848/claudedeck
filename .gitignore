@@ -30,6 +30,6 @@ Thumbs.db
 
 # miku-server runtime artifacts
 miku-server/*.log
-miku-server/miku_test.mp3
+miku-server/miku_*.mp3
 __pycache__/
 *.pyc

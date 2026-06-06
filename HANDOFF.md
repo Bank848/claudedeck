@@ -31,23 +31,66 @@ electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `start-dev.bat`) t
 - **Verified:** MikuAI v2 (sr 40000) → real Thai/EN speech. The full first-run install
   (torch cu124 ~2.5GB + ContentVec/rmvpe ~400MB) is already done in `miku-server/.venv` +
   HF cache, so Start is fast now.
-- **Tuning:** server defaults (RVC_PITCH=6 / RVC_INDEX_RATE=0.5 / protect 0.33) = the user's
-  preferred "most-Miku" sound (`miku_test.mp3`). RVC is language-agnostic — **no Thai dataset
-  needed**; clarity comes from the edge-tts base, not the model.
+- **Tuning — DONE & A/B-verified by ear (2026-06-07).** `server.py` is now
+  **language-aware**: it detects Thai vs English (`_lang_of`, Thai-unicode regex) and
+  applies a per-language `LANG` config. Final picked values:
+  - **Thai:** voice `th-TH-PremwadeeNeural`, pitch **4**, protect **0.33**, filter_radius **5**
+    (Thai is tonal → filter 5 steadies the tones, killing the "แปลก" warble).
+  - **English:** voice `en-US-AnaNeural`, pitch **3**, protect **0.2**, filter_radius 3.
+  - **Shared:** `RVC_BASE_RATE=-10%` (slower edge-tts base = more frames/phoneme = clearer
+    consonants), index_rate 0.5. Every field is env-overridable (`RVC_PITCH_TH`, `RVC_PROTECT_EN`,
+    `BASE_VOICE_TH`, …); see the `LANG` dict + `convert()` docstring.
+  - **Why per-language pitch:** the EN base (Ana) sits ~6 semitones above the Thai base, so at a
+    shared pitch English hit F0 ~390 Hz (shrill). Per-language pitch lands both in the same
+    pleasant Miku-alto zone (Thai ~258 Hz / EN ~348 Hz). RVC stays language-agnostic — **no Thai
+    dataset needed**; `protect` LOWER = clearer consonants (blends in the original on unvoiced frames).
+- **Tuning harnesses (committed, reusable):** `_tune.py` (protect×rate A/B), `_tune_en.py` /
+  `_tune_th.py` (pitch sweeps, take pitches as argv), and **`_analyze.py`** — objective metrics
+  with NO model: F0 (the real "แหลม"/pitch number), spectral centroid (brightness), loudness, and
+  optional `--asr` intelligibility (faster-whisper CER vs source text). Run from `miku-server/`
+  with `.venv\Scripts\python.exe`. mp3 renders are gitignored (`miku-server/miku_*.mp3`).
 
-## TODO (remaining)
-1. **Verify real run** (user's machine, has NVIDIA GPU): start Miku server in-app, place model,
-   press Test → confirm Miku speaks. Fix `server.py` RVC params / ffmpeg issues from logs.
-2. **Storage UI:** wire `settings/storage.ts` (`clearCachedData`, `estimateUsage`) into a
-   Settings "Storage" section with a "Clear cached models & data" button.
-3. **Update system:** on launch check GitHub Releases (latest tag vs `package.json` version) →
-   non-blocking "update available" banner. (ROADMAP)
-4. **Bug feedback:** in-app "Report a bug" → `shell.openExternal` a prefilled GitHub Issue
-   (app version + OS). (ROADMAP)
-5. **P2 — real backend:** `node-pty` to spawn the real `claude`/`codex` CLI; stream into the
-   terminal panel; parse output → drive chat cards / todos / diffs from real data; voice
-   command → CLI → read response aloud.
-6. Optional: package/distribute (electron-builder), polish.
+## TODO (remaining) — next session starts here
+
+**1. Voice latency (measure first).** User asked "how long until Miku starts reading?".
+   Synthesis is non-streaming: `synth()` does edge-tts round-trip → full RVC convert → mp3,
+   all before any audio plays, so TTFB ≈ whole-clip time. Next steps:
+   - Add timing logs around the edge-tts call and `_engine.convert()` in `server.py` (or a
+     `_bench.py` reusing the engine) and report cold (model-load, one-time) vs warm per-utterance
+     latency for a short vs long sentence on the RTX 4070.
+   - If warm latency is too high for chat: **sentence-chunk + stream** — split the response into
+     sentences, synth each, and stream MP3 chunks so playback starts after the first sentence.
+     The OpenAI `/v1/audio/speech` shape can return chunked audio.
+
+**2. Conversational barge-in (the big UX ask).** It must behave like a voice chatbot: while Miku
+   is reading a response, a new wake-word/command should **immediately stop playback and start
+   listening/acting** — don't wait for the read-aloud to finish.
+   - Today TTS playback and STT live in `App.tsx` (`handleVoice`, `voiceState` machine) +
+     `settings/voiceCommands.ts` / `speechRecognition.ts`. STT already keeps running, but TTS
+     isn't cancelled on a fresh command.
+   - Plan: keep the recognizer hot during TTS; on a detected wake-word/command mid-playback, call
+     the existing cancel path (`speechSynthesis.cancel()` / stop the custom `<audio>`), flush the
+     queue, then dispatch the new command. Reuse the "เงียบ"/quiet cancel that already exists.
+   - Watch: echo/self-trigger (Miku's own audio re-entering the mic) — gate the recognizer or use
+     the mic level / a short ignore-window while speaking.
+
+**3. P2 — real backend (`node-pty`).** Brainstorm scope first: spawn real `claude`/`codex` CLI →
+   stream into the terminal panel → parse output to drive chat cards / todos / diffs from real
+   data → voice command → CLI → read the response aloud (ties into #1/#2).
+
+**4. Polish / package:** electron-builder distributable.
+
+Done earlier: Miku fairseq-free (commit df7e6fa), Storage UI, update banner, report-a-bug,
+**voice articulation tuning (this session — language-aware Thai pitch 4 / EN pitch 3).**
+
+### Next-session kickoff prompt
+> อ่าน HANDOFF.md + memory (claudedeck-project.md). เสียงมิกุจูนเสร็จแล้ว (ไทย pitch 4 / อังกฤษ
+> pitch 3, language-aware). งานต่อ เรียงลำดับ: (1) วัด latency เสียง — ใส่ timing ใน server.py /
+> เขียน `_bench.py` รายงาน cold vs warm ต่อประโยคสั้น/ยาวบน RTX 4070; ถ้าช้าให้ทำ sentence-chunk
+> streaming. (2) **barge-in** — กำลังอ่านอยู่ พอได้ยิน wake-word/คำสั่งใหม่ให้หยุดเสียงทันทีแล้วฟัง/
+> ทำคำสั่งต่อ (แก้ใน App.tsx handleVoice + voiceCommands.ts; ระวัง echo เสียงตัวเองเข้าไมค์).
+> (3) P2 node-pty ต่อ CLI จริง — brainstorm scope ก่อน. กฎ: ทำทีละข้อ, build/typecheck เขียวก่อน
+> commit เสมอ, งานหนัก/รอ download ทำ background แล้วทยอย, คุม cost.
 
 ## Notes
 - Persistent project memory exists at the user's Claude memory (claudedeck-project.md) and is

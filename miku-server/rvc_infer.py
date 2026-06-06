@@ -144,8 +144,24 @@ class MikuRVC:
 
     # ── inference ────────────────────────────────────────────────────────────
     def convert(self, audio16k: np.ndarray, *, f0_up_key: int = 0,
-                index_rate: float = 0.5) -> tuple[np.ndarray, int]:
-        """audio16k: float32 mono at 16 kHz. Returns (int16 audio, target_sr)."""
+                index_rate: float = 0.5,
+                protect: float = 0.33,
+                filter_radius: int = 3,
+                rms_mix_rate: float = 0.25) -> tuple[np.ndarray, int]:
+        """audio16k: float32 mono at 16 kHz. Returns (int16 audio, target_sr).
+
+        protect: 0.0–0.5. On unvoiced frames (consonants/breath) the features are
+        blended `protect·converted + (1-protect)·original`, so a *lower* value keeps
+        more of the clear original consonants (better articulation); 0.5 disables the
+        protection entirely (fully Miku-converted consonants, can sound mushy).
+        index_rate: 0–1. How strongly to pull features toward the model's training
+        timbre via the faiss index — higher locks the Miku timbre (steadier) but can
+        smear pronunciation; lower stays faithful to the base TTS.
+        filter_radius: median filter window on the pitch track. Higher (e.g. 5)
+        steadies the pitch → less warble on Thai tones, at the cost of some liveliness.
+        rms_mix_rate: 0–1. 0 keeps the Miku model's own loudness envelope, 1 follows
+        the base TTS loudness.
+        """
         times = [0.0, 0.0, 0.0]
         audio_opt = self.pipeline.pipeline(
             self.hubert,         # model
@@ -159,11 +175,11 @@ class MikuRVC:
             self.index_path,     # file_index
             index_rate if self.index_path else 0.0,
             self.if_f0,
-            3,                   # filter_radius
+            filter_radius,       # median filter on pitch (higher = steadier tones)
             self.tgt_sr,
             0,                   # resample_sr (0 -> keep tgt_sr)
-            0.25,                # rms_mix_rate
+            rms_mix_rate,        # loudness envelope mix
             self.version,
-            0.33,                # protect
+            protect,             # protect (lower = clearer consonants)
         )
         return audio_opt, self.tgt_sr
