@@ -1,0 +1,73 @@
+import { useState } from 'react'
+import { Copy, Check } from 'lucide-react'
+// Lean build: ~37 common languages instead of the full ~190 (faster dev + smaller bundle).
+import hljs from 'highlight.js/lib/common'
+import 'highlight.js/styles/github-dark.css'
+import type { CodeBlockContent } from '@/mock/fixtures'
+
+interface CodeBlockProps {
+  content: CodeBlockContent
+}
+
+export function CodeBlock({ content }: CodeBlockProps): JSX.Element {
+  const [copied, setCopied] = useState(false)
+
+  const highlighted = (() => {
+    try {
+      if (content.language && hljs.getLanguage(content.language)) {
+        return hljs.highlight(content.code, { language: content.language }).value
+      }
+      return hljs.highlightAuto(content.code).value
+    } catch {
+      return content.code
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+    }
+  })()
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content.code).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    })
+  }
+
+  const label = content.filename ?? content.language
+
+  return (
+    <div className="my-3 rounded-md border border-border overflow-hidden">
+      {/* Header bar */}
+      <div className="flex items-center justify-between bg-surface-2 px-3 py-1.5 border-b border-border">
+        <span className="font-mono text-xs text-fg-muted truncate">{label}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          title={copied ? 'Copied!' : 'Copy code'}
+          className="flex items-center gap-1.5 rounded px-2 py-0.5 text-xs text-fg-muted transition-colors hover:bg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer"
+        >
+          {copied ? (
+            <>
+              <Check size={13} className="text-success" />
+              <span className="text-success">Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy size={13} />
+              <span>Copy</span>
+            </>
+          )}
+        </button>
+      </div>
+      {/* Code body */}
+      <div className="overflow-x-auto bg-bg">
+        <pre className="p-4 m-0">
+          <code
+            className="font-mono text-xs leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: highlighted }}
+          />
+        </pre>
+      </div>
+    </div>
+  )
+}

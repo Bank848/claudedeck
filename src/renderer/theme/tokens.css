@@ -1,0 +1,90 @@
+/* ClaudeDeck design tokens — dark only. See plan token table.
+ * Colors are stored as space-separated RGB CHANNELS so Tailwind can apply
+ * alpha modifiers (e.g. bg-accent/20) via rgb(var(--x) / <alpha-value>).
+ * Consume raw with rgb(var(--x)). Hex equivalents are in comments. */
+:root {
+  /* Dark OLED-style, near-black NEUTRAL greys (low blue/indigo tint). */
+  --bg: 11 13 16; /* #0b0d10 — near black */
+  --surface: 20 22 27; /* #14161b */
+  --surface-2: 31 35 42; /* #1f232a */
+  --muted: 22 24 30; /* #16181e */
+  --border: 37 41 49; /* #252931 */
+  --border-strong: 54 60 70; /* #363c46 */
+  --fg: 244 246 248; /* #f4f6f8 */
+  --fg-muted: 154 162 173; /* #9aa2ad — neutral grey */
+  --accent: 217 119 87; /* #d97757 — coral, fills/icons/large text only */
+  --accent-hover: 224 138 110; /* #e08a6e */
+  --success: 34 197 94; /* #22c55e */
+  --destructive: 239 68 68; /* #ef4444 */
+
+  --titlebar-h: 36px;
+  --activitybar-w: 48px;
+  --statusbar-h: 24px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: rgb(var(--bg));
+  color: rgb(var(--fg));
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden; /* app shell manages its own scroll regions */
+}
+
+/* Token-based scrollbars (Windows default scrollbars break the dark look). */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--surface-2));
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--border-strong));
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Visible, on-brand focus rings for keyboard users. */
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.38);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

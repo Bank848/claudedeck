@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App-wide utility layers can be added here as the UI grows. */
+@layer utilities {
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+}
+
+/* Accessibility: forced reduce-motion (Settings toggle, independent of OS). */
+.force-reduce-motion *,
+.force-reduce-motion *::before,
+.force-reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Accessibility: high-contrast text + stronger borders for low vision. */
+.high-contrast {
+  --fg: 255 255 255;
+  --fg-muted: 203 213 225;
+  --border: 71 80 94;
+  --border-strong: 100 112 130;
+}
