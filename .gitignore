@@ -27,3 +27,9 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# miku-server runtime artifacts
+miku-server/*.log
+miku-server/miku_test.mp3
+__pycache__/
+*.pyc
