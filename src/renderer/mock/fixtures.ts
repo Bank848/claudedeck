@@ -533,7 +533,7 @@ export interface FishVoice {
 export const FISH_VOICES: FishVoice[] = [
   { id: 'acc8237220d8470985ec9be6c4c480a9', name: 'มิกุ', vibe: 'Miku สดใสร่าเริง (ยอดนิยม)' },
   { id: 'f77a554c56df4c9caf578cb43e6bac43', name: 'มิกุ JP', vibe: 'Miku เน้นญี่ปุ่น เล่นซน' },
-  { id: '83c19893c4974594839bd2d101b1fd66', name: 'พิม', vibe: 'สาวใส คุยเล่น เป็นกันเอง' },
+  { id: '83c19893c4974594839bd2d101b1fd66', name: 'พริตตี้', vibe: 'Pretty girl — สาวใส คุยเล่น' },
   { id: 'b70e5f4d550647eb9927359d133c8e3a', name: 'โคโคมิ', vibe: 'หญิงนุ่มนวล ใจเย็น' },
   { id: 'c85fb11f91f84312a4bd16756f298ae2', name: 'โกโจ', vibe: 'ชายมั่นใจ คูล ดราม่า' },
   { id: '6c8645b95abb44e0b9095ae3b241e4cc', name: 'โกคู', vibe: 'ชายฮีโร่ พลังเยอะ' },
