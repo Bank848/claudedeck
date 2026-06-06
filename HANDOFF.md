@@ -20,16 +20,20 @@ electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `start-dev.bat`) t
   pause/resume/close state machine. Bilingual (TH/EN). See `App.tsx` handleVoice +
   `settings/voiceCommands.ts`, `voiceLang`, `speechRecognition.ts`.
 
-## Voice — real Miku (in progress, user is setting up)
+## Voice — real Miku ✅ WORKS (fairseq-free, verified 2026-06-07, commit df7e6fa)
 - **Custom engine** (`ttsEngine: 'custom'`) → OpenAI-compatible `/v1/audio/speech`, via
-  `settings/customTts.ts` + main IPC `tts:custom`.
-- **`miku-server/`** = local Python server: edge-tts (base language incl Thai) → RVC
-  (community Miku `.pth`) → mp3. Auto-discovers any `.pth`/`.index` under `miku-server/models/`.
-- **In-app control:** Settings → Voice output engine → Custom (Miku): Start/Stop server,
-  open models folder, download .pth from URL, live log. (`settings/mikuServer.ts`, main IPC `miku:*`.)
-- User downloaded **MikuAI** (Hatsune Miku RVC v2) into `miku-server/models/MikuAI/`.
-- IMPORTANT: RVC is language-agnostic — **no Thai training needed**; Miku speaks Thai via the
-  edge-tts base. Needs Python 3.10–3.11 + ffmpeg + CUDA torch on the user's machine.
+  `settings/customTts.ts` + main IPC `tts:custom`. In-app Start/Stop in Settings → Custom (Miku).
+- **`miku-server/` is now fairseq-free** so it runs on the user's **Python 3.13 + RTX 4070**
+  (rvc-python pinned fairseq==0.12.2 which won't build on 3.12/3.13; no 3.10/3.11 installed).
+  Vendored RVC v2 (MIT, RVC-Project) under `miku-server/rvc/`; HuBERT swapped fairseq →
+  **ContentVec via HF transformers** (`lengyue233/content-vec-best`); F0 = pure-torch **rmvpe**.
+  `rvc_infer.py` = engine, `server.py` = FastAPI (bg model load). `requirements` pin `transformers<5`.
+- **Verified:** MikuAI v2 (sr 40000) → real Thai/EN speech. The full first-run install
+  (torch cu124 ~2.5GB + ContentVec/rmvpe ~400MB) is already done in `miku-server/.venv` +
+  HF cache, so Start is fast now.
+- **Tuning:** server defaults (RVC_PITCH=6 / RVC_INDEX_RATE=0.5 / protect 0.33) = the user's
+  preferred "most-Miku" sound (`miku_test.mp3`). RVC is language-agnostic — **no Thai dataset
+  needed**; clarity comes from the edge-tts base, not the model.
 
 ## TODO (remaining)
 1. **Verify real run** (user's machine, has NVIDIA GPU): start Miku server in-app, place model,
