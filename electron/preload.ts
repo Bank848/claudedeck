@@ -14,6 +14,9 @@ const api = {
     ipcRenderer.on('window:maximized-changed', listener)
     return () => ipcRenderer.removeListener('window:maximized-changed', listener)
   },
+  /** Free Edge-TTS — returns base64 MP3. */
+  edgeTts: (args: { text: string; voice?: string; rate?: string; pitch?: string }): Promise<string> =>
+    ipcRenderer.invoke('tts:edge', args),
 }
 
 contextBridge.exposeInMainWorld('claudedeck', api)

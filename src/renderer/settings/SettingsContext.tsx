@@ -29,8 +29,10 @@ export interface Settings {
   sttEngine: 'browser' | 'local'
   /** Whisper model size for the local engine. */
   whisperModel: 'Xenova/whisper-tiny' | 'Xenova/whisper-base'
-  /** TTS engine: system voices (offline) or local fish-speech server (Miku/anime). */
-  ttsEngine: 'system' | 'fish'
+  /** TTS engine: system (offline), Edge-TTS (free neural, online), or fish-speech (Miku/anime). */
+  ttsEngine: 'system' | 'edge' | 'fish'
+  /** Edge-TTS voice id (e.g. th-TH-PremwadeeNeural). */
+  edgeVoice: string
   /** fish-speech server base URL. */
   fishUrl: string
   /** fish-speech reference/voice id (the cloned voice to speak with). */
@@ -59,6 +61,7 @@ const DEFAULTS: Settings = {
   sttEngine: 'browser',
   whisperModel: 'Xenova/whisper-base',
   ttsEngine: 'system',
+  edgeVoice: 'th-TH-PremwadeeNeural',
   fishUrl: 'http://127.0.0.1:8080',
   fishReferenceId: '',
   fishApiKey: '',
@@ -112,11 +115,18 @@ export function SettingsProvider({ children }: { children: React.ReactNode }): J
   useEffect(() => {
     setTtsConfig({
       engine: settings.ttsEngine,
+      edgeVoice: settings.edgeVoice,
       fishUrl: settings.fishUrl,
       fishReferenceId: settings.fishReferenceId,
       fishApiKey: settings.fishApiKey,
     })
-  }, [settings.ttsEngine, settings.fishUrl, settings.fishReferenceId, settings.fishApiKey])
+  }, [
+    settings.ttsEngine,
+    settings.edgeVoice,
+    settings.fishUrl,
+    settings.fishReferenceId,
+    settings.fishApiKey,
+  ])
 
   // Stop any speech if read-aloud is turned off, and on Escape.
   useEffect(() => {

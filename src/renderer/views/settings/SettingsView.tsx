@@ -14,6 +14,7 @@ import { isDictationSupported } from '@/settings/speechRecognition'
 import { useAudioInputs, useMicLevel } from '@/settings/audioDevices'
 import { speakSmart } from '@/settings/tts'
 import { fishHealth } from '@/settings/fishTts'
+import { EDGE_VOICES, edgeSpeak } from '@/settings/edgeTts'
 import { FISH_VOICES } from '@/mock/fixtures'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
 
@@ -195,8 +196,10 @@ export default function SettingsView(): JSX.Element {
             label="Engine"
             desc={
               settings.ttsEngine === 'fish'
-                ? 'fish-speech (local server) — Miku/anime + Thai. Falls back to system voice if the server is offline.'
-                : 'System voices with pitch personas — instant & offline.'
+                ? 'fish-speech (local server) — Miku/anime. Falls back to system voice if offline.'
+                : settings.ttsEngine === 'edge'
+                  ? 'Edge-TTS — free neural voices (incl. Thai), no API key, unlimited. Needs internet.'
+                  : 'System voices with pitch personas — instant & offline.'
             }
           >
             <Segmented
@@ -205,10 +208,46 @@ export default function SettingsView(): JSX.Element {
               onChange={(v) => update('ttsEngine', v)}
               options={[
                 { value: 'system', label: 'System' },
+                { value: 'edge', label: 'Edge-TTS (free)' },
                 { value: 'fish', label: 'fish-speech' },
               ]}
             />
           </Row>
+
+          {settings.ttsEngine === 'edge' && (
+            <div className="border-b border-border px-4 py-3">
+              <div className="mb-2 text-sm font-medium text-fg">Edge-TTS voice (free)</div>
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                {EDGE_VOICES.map((v) => {
+                  const active = settings.edgeVoice === v.id
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => {
+                        update('edgeVoice', v.id)
+                        void edgeSpeak(sample, {
+                          voice: v.id,
+                          rate: settings.speechRate,
+                          pitch: settings.speechPitch,
+                        }).catch(() => undefined)
+                      }}
+                      title={v.vibe}
+                      className={`flex flex-col items-start rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
+                        active ? 'border-accent bg-accent/10' : 'border-border bg-bg hover:border-border-strong'
+                      }`}
+                    >
+                      <span className="text-sm font-medium text-fg">{v.name}</span>
+                      <span className="truncate text-[10px] text-fg-muted">{v.vibe}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-xs text-fg-muted">
+                Free, no key, unlimited. Tip: raise Pitch above for a brighter, anime-ish tone.
+              </p>
+            </div>
+          )}
 
           {settings.ttsEngine === 'fish' && (
             <>

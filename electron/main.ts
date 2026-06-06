@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
+import { EdgeTTS } from '@andresaya/edge-tts'
 
 const isDev = !app.isPackaged
 const MIN_SPLASH_MS = 1100
@@ -124,6 +125,23 @@ function registerIpc(): void {
   })
   ipcMain.on('window:close', () => mainWindow?.close())
   ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
+
+  // Free Edge-TTS (Microsoft online neural voices) — runs here in the main
+  // process because Chromium renderers can't open the Edge TTS socket directly.
+  ipcMain.handle(
+    'tts:edge',
+    async (
+      _e,
+      args: { text: string; voice?: string; rate?: string; pitch?: string },
+    ): Promise<string> => {
+      const tts = new EdgeTTS()
+      await tts.synthesize(args.text, args.voice || 'th-TH-PremwadeeNeural', {
+        rate: args.rate ?? '+0%',
+        pitch: args.pitch ?? '+0Hz',
+      })
+      return tts.toBase64()
+    },
+  )
 }
 
 app.whenReady().then(() => {

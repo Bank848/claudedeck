@@ -7,15 +7,23 @@
  */
 import { speak as systemSpeak, cancelSpeech as cancelSystem, isSpeechSupported } from './speech'
 import { fishSpeak, stopFish } from './fishTts'
+import { edgeSpeak, stopEdge } from './edgeTts'
 
 interface TtsConfig {
-  engine: 'system' | 'fish'
+  engine: 'system' | 'edge' | 'fish'
+  edgeVoice: string
   fishUrl: string
   fishReferenceId: string
   fishApiKey: string
 }
 
-let cfg: TtsConfig = { engine: 'system', fishUrl: '', fishReferenceId: '', fishApiKey: '' }
+let cfg: TtsConfig = {
+  engine: 'system',
+  edgeVoice: 'th-TH-PremwadeeNeural',
+  fishUrl: '',
+  fishReferenceId: '',
+  fishApiKey: '',
+}
 
 export function setTtsConfig(c: TtsConfig): void {
   cfg = c
@@ -35,6 +43,11 @@ function systemSpeakPromise(text: string, opts: SpeakOpts): Promise<void> {
 
 /** Speak via the active engine. Resolves when playback finishes. */
 export function speakSmart(text: string, opts: SpeakOpts = {}): Promise<void> {
+  if (cfg.engine === 'edge') {
+    return edgeSpeak(text, { voice: cfg.edgeVoice, rate: opts.rate, pitch: opts.pitch }).catch(() =>
+      systemSpeakPromise(text, opts),
+    )
+  }
   if (cfg.engine === 'fish' && cfg.fishUrl) {
     return fishSpeak(text, {
       url: cfg.fishUrl,
@@ -46,6 +59,7 @@ export function speakSmart(text: string, opts: SpeakOpts = {}): Promise<void> {
 }
 
 export function cancelSmart(): void {
+  stopEdge()
   stopFish()
   cancelSystem()
 }
