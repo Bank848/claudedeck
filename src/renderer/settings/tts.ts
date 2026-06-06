@@ -12,9 +12,10 @@ interface TtsConfig {
   engine: 'system' | 'fish'
   fishUrl: string
   fishReferenceId: string
+  fishApiKey: string
 }
 
-let cfg: TtsConfig = { engine: 'system', fishUrl: '', fishReferenceId: '' }
+let cfg: TtsConfig = { engine: 'system', fishUrl: '', fishReferenceId: '', fishApiKey: '' }
 
 export function setTtsConfig(c: TtsConfig): void {
   cfg = c
@@ -35,9 +36,11 @@ function systemSpeakPromise(text: string, opts: SpeakOpts): Promise<void> {
 /** Speak via the active engine. Resolves when playback finishes. */
 export function speakSmart(text: string, opts: SpeakOpts = {}): Promise<void> {
   if (cfg.engine === 'fish' && cfg.fishUrl) {
-    return fishSpeak(text, { url: cfg.fishUrl, referenceId: cfg.fishReferenceId }).catch(() =>
-      systemSpeakPromise(text, opts),
-    )
+    return fishSpeak(text, {
+      url: cfg.fishUrl,
+      referenceId: cfg.fishReferenceId,
+      apiKey: cfg.fishApiKey,
+    }).catch(() => systemSpeakPromise(text, opts))
   }
   return systemSpeakPromise(text, opts)
 }

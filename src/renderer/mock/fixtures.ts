@@ -519,6 +519,27 @@ export const STATUS: StatusInfo = {
   branch: 'feat/dark-mode',
 }
 
+/* ──────────────────────────── fish-speech voices ───────────────────────────── */
+
+/** A ready-made fish-speech / Fish Audio voice (reference id) the user can pick. */
+export interface FishVoice {
+  /** Fish Audio model / reference id. */
+  id: string
+  /** Display + call-name (wake word follows this). */
+  name: string
+  vibe: string
+}
+
+export const FISH_VOICES: FishVoice[] = [
+  { id: 'acc8237220d8470985ec9be6c4c480a9', name: 'มิกุ', vibe: 'Miku สดใสร่าเริง (ยอดนิยม)' },
+  { id: 'f77a554c56df4c9caf578cb43e6bac43', name: 'มิกุ JP', vibe: 'Miku เน้นญี่ปุ่น เล่นซน' },
+  { id: '83c19893c4974594839bd2d101b1fd66', name: 'พิม', vibe: 'สาวใส คุยเล่น เป็นกันเอง' },
+  { id: 'b70e5f4d550647eb9927359d133c8e3a', name: 'โคโคมิ', vibe: 'หญิงนุ่มนวล ใจเย็น' },
+  { id: 'c85fb11f91f84312a4bd16756f298ae2', name: 'โกโจ', vibe: 'ชายมั่นใจ คูล ดราม่า' },
+  { id: '6c8645b95abb44e0b9095ae3b241e4cc', name: 'โกคู', vibe: 'ชายฮีโร่ พลังเยอะ' },
+  { id: 'cd3b00723b114873918c0870b0a87843', name: 'อีธาน', vibe: 'ชายหนุ่มเสียงใส' },
+]
+
 /* ───────────────────────────────── Usage ───────────────────────────────────── */
 
 /** A rolling usage limit window (e.g. the 5-hour or weekly cap). */

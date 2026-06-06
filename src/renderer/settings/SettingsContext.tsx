@@ -35,6 +35,8 @@ export interface Settings {
   fishUrl: string
   /** fish-speech reference/voice id (the cloned voice to speak with). */
   fishReferenceId: string
+  /** Optional API key — set this to use Fish Audio cloud (api.fish.audio); blank for self-host. */
+  fishApiKey: string
   /** Force-reduce animations regardless of OS setting. */
   reduceMotion: boolean
   /** Brighter text + stronger borders for low vision. */
@@ -51,7 +53,7 @@ const DEFAULTS: Settings = {
   micDeviceId: '',
   speechToText: true,
   voiceCommands: false,
-  assistantName: 'เด็ค',
+  assistantName: 'บีม',
   requireWakeWord: true,
   voiceLang: 'auto',
   sttEngine: 'browser',
@@ -59,6 +61,7 @@ const DEFAULTS: Settings = {
   ttsEngine: 'system',
   fishUrl: 'http://127.0.0.1:8080',
   fishReferenceId: '',
+  fishApiKey: '',
   reduceMotion: false,
   highContrast: false,
   uiScale: 'normal',
@@ -111,8 +114,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }): J
       engine: settings.ttsEngine,
       fishUrl: settings.fishUrl,
       fishReferenceId: settings.fishReferenceId,
+      fishApiKey: settings.fishApiKey,
     })
-  }, [settings.ttsEngine, settings.fishUrl, settings.fishReferenceId])
+  }, [settings.ttsEngine, settings.fishUrl, settings.fishReferenceId, settings.fishApiKey])
 
   // Stop any speech if read-aloud is turned off, and on Escape.
   useEffect(() => {

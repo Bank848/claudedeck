@@ -14,6 +14,7 @@ import { isDictationSupported } from '@/settings/speechRecognition'
 import { useAudioInputs, useMicLevel } from '@/settings/audioDevices'
 import { speakSmart } from '@/settings/tts'
 import { fishHealth } from '@/settings/fishTts'
+import { FISH_VOICES } from '@/mock/fixtures'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
 
 export default function SettingsView(): JSX.Element {
@@ -47,13 +48,15 @@ export default function SettingsView(): JSX.Element {
     })
 
   const testFish = async (): Promise<void> => {
-    setFishStatus('…')
-    const ok = await fishHealth(settings.fishUrl)
-    if (!ok) {
-      setFishStatus('เชื่อมต่อ server ไม่ได้')
-      return
-    }
     setFishStatus('กำลังพูด…')
+    // Health check is best-effort (cloud may not expose it without auth).
+    if (!settings.fishApiKey) {
+      const ok = await fishHealth(settings.fishUrl)
+      if (!ok) {
+        setFishStatus('เชื่อมต่อ server ไม่ได้')
+        return
+      }
+    }
     try {
       await speakSmart(sample, { lang: resolveLang(settings.voiceLang).code })
       setFishStatus('สำเร็จ ✓')
@@ -68,6 +71,8 @@ export default function SettingsView(): JSX.Element {
     update('voiceURI', voiceURI)
     update('speechPitch', p.pitch)
     update('speechRate', p.rate)
+    // The voice's name becomes the assistant's call-name (wake word).
+    update('assistantName', p.name)
     speak(sample, { rate: p.rate, pitch: p.pitch, voiceURI, lang: resolveLang(settings.voiceLang).code })
   }
 
@@ -116,7 +121,7 @@ export default function SettingsView(): JSX.Element {
 
           <Row
             label="Voice persona"
-            desc="Named voices — tap to preview. Normal or anime, male or female."
+            desc="Named voices — tap to preview. The chosen voice's name also becomes the assistant's call-name (wake word)."
           >
             <div className="flex flex-wrap justify-end gap-1.5">
               {VOICE_PRESETS.map((p) => (
@@ -215,15 +220,57 @@ export default function SettingsView(): JSX.Element {
                   className="w-56 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
                 />
               </Row>
+              <div className="border-b border-border px-4 py-3">
+                <div className="mb-2 text-sm font-medium text-fg">Anime / Miku voices</div>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  {FISH_VOICES.map((v) => {
+                    const active = settings.fishReferenceId === v.id
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => {
+                          update('fishReferenceId', v.id)
+                          update('assistantName', v.name)
+                        }}
+                        title={v.vibe}
+                        className={`flex flex-col items-start rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
+                          active
+                            ? 'border-accent bg-accent/10'
+                            : 'border-border bg-bg hover:border-border-strong'
+                        }`}
+                      >
+                        <span className="text-sm font-medium text-fg">{v.name}</span>
+                        <span className="truncate text-[10px] text-fg-muted">{v.vibe}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
               <Row
-                label="Voice (reference id)"
-                desc="The cloned voice id, e.g. a Miku reference added on your server."
+                label="Reference id"
+                desc="Auto-filled by the buttons above, or paste a custom voice id."
               >
                 <input
                   aria-label="fish-speech reference id"
                   value={settings.fishReferenceId}
                   onChange={(e) => update('fishReferenceId', e.target.value)}
                   placeholder="(default)"
+                  className="w-56 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
+                />
+              </Row>
+
+              <Row
+                label="API key (cloud)"
+                desc="Set to use Fish Audio cloud (api.fish.audio) where these voices live. Leave blank for self-host."
+              >
+                <input
+                  aria-label="fish-speech API key"
+                  type="password"
+                  value={settings.fishApiKey}
+                  onChange={(e) => update('fishApiKey', e.target.value)}
+                  placeholder="(self-host)"
                   className="w-56 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
                 />
               </Row>
@@ -241,7 +288,12 @@ export default function SettingsView(): JSX.Element {
                 </div>
               </Row>
               <p className="px-4 py-3 text-xs text-fg-muted">
-                Run a fish-speech server locally (GPU): <code className="text-fg">python tools/api_server.py --listen 0.0.0.0:8080</code>. Add a Miku/anime reference voice, then paste its id above.
+                <strong className="text-fg">Cloud:</strong> set URL to{' '}
+                <code className="text-fg">https://api.fish.audio</code> + paste an API key (free
+                credit) — the voices above work instantly.{' '}
+                <strong className="text-fg">Self-host (GPU):</strong>{' '}
+                <code className="text-fg">python tools/api_server.py --listen 0.0.0.0:8080</code> and
+                import the reference clips.
               </p>
             </>
           )}

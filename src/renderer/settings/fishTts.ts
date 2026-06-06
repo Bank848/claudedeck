@@ -19,6 +19,8 @@ export function stopFish(): void {
 interface FishOptions {
   url: string
   referenceId?: string
+  /** Bearer token for Fish Audio cloud (api.fish.audio); omit for self-host. */
+  apiKey?: string
   signal?: AbortSignal
 }
 
@@ -34,9 +36,12 @@ export async function fishSpeak(text: string, opts: FishOptions): Promise<void> 
     streaming: false,
   })
 
+  const headers: Record<string, string> = { 'content-type': 'application/msgpack' }
+  if (opts.apiKey) headers.authorization = `Bearer ${opts.apiKey}`
+
   const res = await fetch(`${base}/v1/tts`, {
     method: 'POST',
-    headers: { 'content-type': 'application/msgpack' },
+    headers,
     body,
     signal: opts.signal,
   })

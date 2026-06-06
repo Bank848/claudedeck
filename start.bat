@@ -34,6 +34,12 @@ if not exist "out\main\index.js" (
   )
 )
 
+rem Auto-start any local backend (e.g. fish-speech) in the background if configured.
+if exist "tools\fish-server.bat" (
+  echo [ClaudeDeck] Starting local voice server in background...
+  start "ClaudeDeck voice server" /min cmd /c "tools\fish-server.bat"
+)
+
 echo [ClaudeDeck] Launching...
 call npm run start
 if errorlevel 1 (

@@ -22,6 +22,12 @@ if not exist "node_modules" (
   )
 )
 
+rem Auto-start any local backend (e.g. fish-speech) in the background if configured.
+if exist "tools\fish-server.bat" (
+  echo [ClaudeDeck] Starting local voice server in background...
+  start "ClaudeDeck voice server" /min cmd /c "tools\fish-server.bat"
+)
+
 echo [ClaudeDeck] Starting dev mode with hot reload...
 call npm run dev
 if errorlevel 1 (
