@@ -52,15 +52,18 @@ electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `start-dev.bat`) t
 
 ## TODO (remaining) — next session starts here
 
-**1. Voice latency (measure first).** User asked "how long until Miku starts reading?".
-   Synthesis is non-streaming: `synth()` does edge-tts round-trip → full RVC convert → mp3,
-   all before any audio plays, so TTFB ≈ whole-clip time. Next steps:
-   - Add timing logs around the edge-tts call and `_engine.convert()` in `server.py` (or a
-     `_bench.py` reusing the engine) and report cold (model-load, one-time) vs warm per-utterance
-     latency for a short vs long sentence on the RTX 4070.
-   - If warm latency is too high for chat: **sentence-chunk + stream** — split the response into
-     sentences, synth each, and stream MP3 chunks so playback starts after the first sentence.
-     The OpenAI `/v1/audio/speech` shape can return chunked audio.
+**1. Voice latency — ✅ DONE (measured + streaming, 2026-06-07).**
+   - **Instrumented** `server.py synth()` to log `edge/rvc/mp3/total(TTFB)/RTF` per request,
+     and added **`_bench.py`** (loads engine once → cold vs warm convert, short/long × TH/EN).
+   - **Measured (RTX 4070, MikuAI v2 sr 40000):** engine load 9.2s (one-time); first convert
+     pays ~6.5s cuDNN warmup; **warm RVC 0.68–1.72s, RTF 0.29–0.74** (faster than realtime).
+     Warm TTFB **2.3s short → 3.9s long**. Surprise: **edge-tts network is ~half** the TTFB.
+   - **Streaming shipped** in `settings/customTts.ts`: `customSpeak()` splits the reply into
+     sentence chunks (`splitIntoChunks`, exported/pure) and pipelines — synth chunk i+1 while
+     chunk i plays → TTFB drops to first-sentence (~2s). First chunk ≤90 chars; Thai packs by
+     word (no sentence punctuation) so it streams too. A **generation counter** (bumped by
+     `stopCustom` + each new speak) preempts an in-flight reply at every await boundary — the
+     **foundation for barge-in (item 2)**. No server protocol change (1 chunk = 1 request).
 
 **2. Conversational barge-in (the big UX ask).** It must behave like a voice chatbot: while Miku
    is reading a response, a new wake-word/command should **immediately stop playback and start
@@ -71,6 +74,10 @@ electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `start-dev.bat`) t
    - Plan: keep the recognizer hot during TTS; on a detected wake-word/command mid-playback, call
      the existing cancel path (`speechSynthesis.cancel()` / stop the custom `<audio>`), flush the
      queue, then dispatch the new command. Reuse the "เงียบ"/quiet cancel that already exists.
+   - **Foundation ready (item 1b):** `cancelSmart()` → `stopCustom()` already bumps a generation
+     counter + halts the current chunk, so a mid-reply barge-in stops cleanly at sentence
+     granularity and stale chunks never play. Item 2 = wire the *trigger* (detect a fresh
+     wake-word/command while `voiceState` is "speaking") to that existing cancel + dispatch.
    - Watch: echo/self-trigger (Miku's own audio re-entering the mic) — gate the recognizer or use
      the mic level / a short ignore-window while speaking.
 
@@ -81,7 +88,8 @@ electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `start-dev.bat`) t
 **4. Polish / package:** electron-builder distributable.
 
 Done earlier: Miku fairseq-free (commit df7e6fa), Storage UI, update banner, report-a-bug,
-**voice articulation tuning (this session — language-aware Thai pitch 4 / EN pitch 3).**
+voice articulation tuning (language-aware Thai pitch 4 / EN pitch 3),
+**voice latency: measured + sentence-chunk streaming (commits 900fe76, 566eb81).**
 
 ### Next-session kickoff prompt
 > อ่าน HANDOFF.md + memory (claudedeck-project.md). เสียงมิกุจูนเสร็จแล้ว (ไทย pitch 4 / อังกฤษ
