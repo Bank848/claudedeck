@@ -14,6 +14,7 @@ import { isDictationSupported } from '@/settings/speechRecognition'
 import { useAudioInputs, useMicLevel } from '@/settings/audioDevices'
 import { speakSmart } from '@/settings/tts'
 import { EDGE_VOICES, edgeSpeak } from '@/settings/edgeTts'
+import { useMikuServer } from '@/settings/mikuServer'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
 
 export default function SettingsView(): JSX.Element {
@@ -23,6 +24,9 @@ export default function SettingsView(): JSX.Element {
   const { inputs } = useAudioInputs()
   const [micTest, setMicTest] = useState(false)
   const micLevel = useMicLevel(micTest, settings.micDeviceId)
+  const miku = useMikuServer()
+  const [modelUrl, setModelUrl] = useState('')
+  const [dlStatus, setDlStatus] = useState('')
 
   const voiceOptions = [
     { value: '', label: 'System default' },
@@ -194,10 +198,85 @@ export default function SettingsView(): JSX.Element {
           {settings.ttsEngine === 'custom' && (
             <>
               <p className="border-b border-border px-4 py-3 text-xs text-amber-400/90">
-                ⚠️ ขั้นสูง: ต้องรัน TTS server เอง (เช่น RVC/VITS Miku — โหลดโมเดลฟรีจาก
-                voice-models.com). <strong>ใช้ทรัพยากรเยอะ อาจมีดีเลย์</strong> โดยเฉพาะ GPU อ่อน/CPU
-                — แต่ได้เสียง Miku จริง. ถ้า server ล่มจะถอยไปใช้เสียงระบบให้อัตโนมัติ
+                ⚠️ ขั้นสูง: รัน Miku server (RVC) ในเครื่อง. <strong>ใช้ทรัพยากรเยอะ อาจมีดีเลย์</strong>{' '}
+                โดยเฉพาะ GPU อ่อน/CPU — แต่ได้เสียง Miku จริง. ถ้า server ล่มจะถอยไปใช้เสียงระบบให้อัตโนมัติ
               </p>
+
+              {miku.available && (
+                <>
+                  <Row
+                    label="Miku model"
+                    desc={
+                      miku.hasModel
+                        ? 'พบโมเดลแล้ว (miku.pth) ✓'
+                        : 'ยังไม่มีโมเดล — กดเปิดโฟลเดอร์แล้ววาง miku.pth หรือวาง URL โหลดด้านล่าง'
+                    }
+                  >
+                    <button
+                      type="button"
+                      onClick={miku.openModels}
+                      className="rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg"
+                    >
+                      เปิดโฟลเดอร์โมเดล
+                    </button>
+                  </Row>
+
+                  <Row label="โหลดโมเดลจาก URL" desc="วางลิงก์ตรงไฟล์ .pth (เช่นจาก HuggingFace).">
+                    <div className="flex items-center gap-2">
+                      {dlStatus && <span className="text-xs text-fg-muted">{dlStatus}</span>}
+                      <input
+                        aria-label="Model URL"
+                        value={modelUrl}
+                        onChange={(e) => setModelUrl(e.target.value)}
+                        placeholder="https://….pth"
+                        className="w-44 rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={!modelUrl.trim()}
+                        onClick={async () => {
+                          setDlStatus('กำลังโหลด…')
+                          const r = await miku.downloadModel(modelUrl.trim())
+                          setDlStatus(r.ok ? 'สำเร็จ ✓' : `ผิดพลาด: ${r.error ?? ''}`)
+                        }}
+                        className="rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                      >
+                        โหลด
+                      </button>
+                    </div>
+                  </Row>
+
+                  <Row
+                    label="Miku server"
+                    desc={
+                      miku.running ? 'กำลังทำงาน — ครั้งแรกจะลง deps สักครู่' : 'กดเริ่มเพื่อรันในแอป'
+                    }
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-2 w-2 rounded-full ${miku.running ? 'bg-success' : 'bg-fg-muted'}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => (miku.running ? void miku.stop() : void miku.start())}
+                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                          miku.running
+                            ? 'bg-destructive/20 text-destructive hover:bg-destructive/30'
+                            : 'bg-accent text-white hover:bg-accent-hover'
+                        }`}
+                      >
+                        {miku.running ? 'หยุด' : 'เริ่ม Miku server'}
+                      </button>
+                    </div>
+                  </Row>
+
+                  {miku.log && (
+                    <pre className="mx-4 mb-3 max-h-32 overflow-auto rounded-md border border-border bg-bg p-2 font-mono text-[10px] leading-relaxed text-fg-muted">
+                      {miku.log}
+                    </pre>
+                  )}
+                </>
+              )}
               <Row label="Server URL" desc="OpenAI-compatible /v1/audio/speech endpoint.">
                 <input
                   aria-label="Custom server URL"

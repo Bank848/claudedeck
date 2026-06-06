@@ -1,5 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync, mkdirSync, createWriteStream } from 'node:fs'
+import { get as httpsGet } from 'node:https'
 import { EdgeTTS } from '@andresaya/edge-tts'
 
 const isDev = !app.isPackaged
@@ -7,6 +10,71 @@ const MIN_SPLASH_MS = 1100
 
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
+
+/* ── Miku voice server (local Python) lifecycle ───────────────────────────── */
+let mikuProc: ChildProcess | null = null
+
+function mikuDir(): string {
+  return join(process.cwd(), 'miku-server')
+}
+function mikuModelsDir(): string {
+  const d = join(mikuDir(), 'models')
+  if (!existsSync(d)) mkdirSync(d, { recursive: true })
+  return d
+}
+function mikuLog(line: string): void {
+  mainWindow?.webContents.send('miku:log', line)
+}
+function mikuSetRunning(running: boolean): void {
+  mainWindow?.webContents.send('miku:status', running)
+}
+
+function startMiku(): { ok: boolean; error?: string } {
+  if (mikuProc) return { ok: true }
+  const dir = mikuDir()
+  if (!existsSync(join(dir, 'server.py'))) return { ok: false, error: 'miku-server not found' }
+  // run.bat sets up the venv + deps on first run, then launches server.py.
+  mikuProc = spawn('cmd.exe', ['/c', 'run.bat'], { cwd: dir, windowsHide: true })
+  mikuSetRunning(true)
+  mikuProc.stdout?.on('data', (d) => mikuLog(String(d)))
+  mikuProc.stderr?.on('data', (d) => mikuLog(String(d)))
+  mikuProc.on('exit', (code) => {
+    mikuLog(`\n[server exited: ${code}]`)
+    mikuProc = null
+    mikuSetRunning(false)
+  })
+  return { ok: true }
+}
+
+function stopMiku(): void {
+  if (!mikuProc?.pid) return
+  // Kill the whole tree (cmd → python) on Windows.
+  spawn('taskkill', ['/pid', String(mikuProc.pid), '/T', '/F'])
+  mikuProc = null
+  mikuSetRunning(false)
+}
+
+function downloadModel(url: string, filename: string, depth = 0): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (depth > 5) return reject(new Error('too many redirects'))
+    const dest = join(mikuModelsDir(), filename)
+    httpsGet(url, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume()
+        downloadModel(res.headers.location, filename, depth + 1).then(resolve, reject)
+        return
+      }
+      if (res.statusCode !== 200) {
+        res.resume()
+        return reject(new Error(`HTTP ${res.statusCode}`))
+      }
+      const file = createWriteStream(dest)
+      res.pipe(file)
+      file.on('finish', () => file.close(() => resolve()))
+      file.on('error', reject)
+    }).on('error', reject)
+  })
+}
 
 /**
  * Splash is rendered from an inline data URL so it works identically in dev and
@@ -169,6 +237,28 @@ function registerIpc(): void {
       return buf.toString('base64')
     },
   )
+
+  // Miku voice server lifecycle (start/stop the local Python server from the UI).
+  ipcMain.handle('miku:start', () => startMiku())
+  ipcMain.handle('miku:stop', () => {
+    stopMiku()
+    return { ok: true }
+  })
+  ipcMain.handle('miku:status', () => mikuProc !== null)
+  ipcMain.handle('miku:has-model', () => existsSync(join(mikuModelsDir(), 'miku.pth')))
+  ipcMain.handle('miku:open-models', () => shell.openPath(mikuModelsDir()))
+  ipcMain.handle(
+    'miku:download-model',
+    async (_e, args: { url: string; index?: string }): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        await downloadModel(args.url, 'miku.pth')
+        if (args.index) await downloadModel(args.index, 'miku.index')
+        return { ok: true }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
 }
 
 app.whenReady().then(() => {
@@ -189,6 +279,9 @@ app.whenReady().then(() => {
   })
 })
 
+app.on('before-quit', () => stopMiku())
+
 app.on('window-all-closed', () => {
+  stopMiku()
   if (process.platform !== 'darwin') app.quit()
 })

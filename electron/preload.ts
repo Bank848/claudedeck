@@ -25,6 +25,27 @@ const api = {
     apiKey?: string
     input: string
   }): Promise<string> => ipcRenderer.invoke('tts:custom', args),
+
+  /** Local Miku voice server lifecycle. */
+  miku: {
+    start: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('miku:start'),
+    stop: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('miku:stop'),
+    status: (): Promise<boolean> => ipcRenderer.invoke('miku:status'),
+    hasModel: (): Promise<boolean> => ipcRenderer.invoke('miku:has-model'),
+    openModels: (): Promise<string> => ipcRenderer.invoke('miku:open-models'),
+    downloadModel: (args: { url: string; index?: string }): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('miku:download-model', args),
+    onLog: (cb: (line: string) => void): (() => void) => {
+      const l = (_e: unknown, line: string): void => cb(line)
+      ipcRenderer.on('miku:log', l)
+      return () => ipcRenderer.removeListener('miku:log', l)
+    },
+    onStatus: (cb: (running: boolean) => void): (() => void) => {
+      const l = (_e: unknown, running: boolean): void => cb(running)
+      ipcRenderer.on('miku:status', l)
+      return () => ipcRenderer.removeListener('miku:status', l)
+    },
+  },
 }
 
 contextBridge.exposeInMainWorld('claudedeck', api)
