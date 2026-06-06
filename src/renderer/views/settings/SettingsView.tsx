@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic, HardDrive, Trash2 } from 'lucide-react'
 import { useSettings } from '@/settings/SettingsContext'
 import {
   isSpeechSupported,
@@ -15,6 +15,7 @@ import { useAudioInputs, useMicLevel } from '@/settings/audioDevices'
 import { speakSmart } from '@/settings/tts'
 import { EDGE_VOICES, edgeSpeak } from '@/settings/edgeTts'
 import { useMikuServer } from '@/settings/mikuServer'
+import { estimateUsage, clearCachedData, formatBytes } from '@/settings/storage'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
 
 export default function SettingsView(): JSX.Element {
@@ -27,6 +28,12 @@ export default function SettingsView(): JSX.Element {
   const miku = useMikuServer()
   const [modelUrl, setModelUrl] = useState('')
   const [dlStatus, setDlStatus] = useState('')
+  const [cacheUsage, setCacheUsage] = useState(0)
+  const [clearing, setClearing] = useState(false)
+
+  useEffect(() => {
+    void estimateUsage().then(setCacheUsage)
+  }, [])
 
   const voiceOptions = [
     { value: '', label: 'System default' },
@@ -552,6 +559,32 @@ export default function SettingsView(): JSX.Element {
               checked={settings.reduceMotion}
               onChange={(v) => update('reduceMotion', v)}
             />
+          </Row>
+        </Section>
+
+        {/* Storage */}
+        <Section icon={<HardDrive size={16} className="text-accent" />} title="Storage">
+          <Row
+            label="Cached data"
+            desc={`Downloaded voice models (offline Whisper, etc.) cached on this device — about ${formatBytes(cacheUsage)}. Settings are kept.`}
+          >
+            <button
+              type="button"
+              disabled={clearing}
+              onClick={async () => {
+                setClearing(true)
+                try {
+                  await clearCachedData()
+                  setCacheUsage(await estimateUsage())
+                } finally {
+                  setClearing(false)
+                }
+              }}
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:border-destructive hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 size={13} />
+              {clearing ? 'กำลังล้าง…' : 'ล้างข้อมูลแคช'}
+            </button>
           </Row>
         </Section>
 
