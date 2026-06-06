@@ -211,6 +211,10 @@ export default function SettingsView(): JSX.Element {
               <p className="border-b border-border px-4 py-3 text-xs text-amber-400/90">
                 ⚠️ ขั้นสูง: รัน Miku server (RVC) ในเครื่อง. <strong>ใช้ทรัพยากรเยอะ อาจมีดีเลย์</strong>{' '}
                 โดยเฉพาะ GPU อ่อน/CPU — แต่ได้เสียง Miku จริง. ถ้า server ล่มจะถอยไปใช้เสียงระบบให้อัตโนมัติ
+                <br />
+                <strong>แนะนำ: ต้องมี GPU NVIDIA ที่แรงพอ</strong> (เช่น RTX 3060/4070 ขึ้นไป, VRAM ≥ 6 GB)
+                ถึงจะเหมาะกับการใช้งานจริง — แปลงเสียงเร็ว ดีเลย์ต่ำ. บน CPU/GPU อ่อนจะช้ามาก (หลายวินาทีต่อประโยค)
+                และครั้งแรกต้องโหลดโมเดล ~3 GB.
               </p>
 
               {miku.available && (
