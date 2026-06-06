@@ -55,7 +55,7 @@ const DEFAULTS: Settings = {
   micDeviceId: '',
   speechToText: true,
   voiceCommands: false,
-  assistantName: 'บีม',
+  assistantName: 'กุ้ง',
   requireWakeWord: true,
   voiceLang: 'auto',
   sttEngine: 'browser',

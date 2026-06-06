@@ -72,8 +72,6 @@ export default function SettingsView(): JSX.Element {
     update('voiceURI', voiceURI)
     update('speechPitch', p.pitch)
     update('speechRate', p.rate)
-    // The voice's name becomes the assistant's call-name (wake word).
-    update('assistantName', p.name)
     speak(sample, { rate: p.rate, pitch: p.pitch, voiceURI, lang: resolveLang(settings.voiceLang).code })
   }
 
@@ -122,7 +120,7 @@ export default function SettingsView(): JSX.Element {
 
           <Row
             label="Voice persona"
-            desc="Named voices — tap to preview. The chosen voice's name also becomes the assistant's call-name (wake word)."
+            desc="Voice styles — tap to preview. The assistant's call-name is set separately below (default “กุ้ง”)."
           >
             <div className="flex flex-wrap justify-end gap-1.5">
               {VOICE_PRESETS.map((p) => (
@@ -268,10 +266,7 @@ export default function SettingsView(): JSX.Element {
                       <button
                         key={v.id}
                         type="button"
-                        onClick={() => {
-                          update('fishReferenceId', v.id)
-                          update('assistantName', v.name)
-                        }}
+                        onClick={() => update('fishReferenceId', v.id)}
                         title={v.vibe}
                         className={`flex flex-col items-start rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
                           active
