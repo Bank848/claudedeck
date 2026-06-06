@@ -19,6 +19,7 @@ strongly recommended; CPU works but is slow. See README.md.
 import os
 import re
 import glob
+import time
 import asyncio
 import tempfile
 import logging
@@ -138,20 +139,36 @@ def _int16_to_mp3(audio: np.ndarray, sr: int) -> bytes:
 
 
 def synth(text: str) -> bytes:
-    cfg = LANG[_lang_of(text)]
+    lang = _lang_of(text)
+    cfg = LANG[lang]
     with tempfile.TemporaryDirectory() as d:
         base_mp3 = os.path.join(d, "base.mp3")
         # 1) base TTS (edge-tts is async; this runs in a worker thread). Voice is
         #    picked per detected language; slowing the base rate improves clarity.
         kwargs = {"rate": BASE_RATE} if BASE_RATE and BASE_RATE != "+0%" else {}
+        t0 = time.perf_counter()
         asyncio.run(edge_tts.Communicate(text, cfg["voice"], **kwargs).save(base_mp3))
         audio16k = _mp3_to_16k_mono(base_mp3)
+        t1 = time.perf_counter()
         # 2) RVC convert → Miku timbre (per-language pitch/protect/filter)
         out, sr = _engine.convert(audio16k, f0_up_key=cfg["pitch"],
                                   index_rate=INDEX_RATE, protect=cfg["protect"],
                                   filter_radius=cfg["filter"])
+        t2 = time.perf_counter()
         # 3) → mp3
-        return _int16_to_mp3(out, sr)
+        mp3 = _int16_to_mp3(out, sr)
+        t3 = time.perf_counter()
+        # Latency breakdown. Synthesis is non-streaming, so total ≈ time-to-first-byte
+        # the client experiences. RTF<1 means we render faster than realtime.
+        audio_s = len(out) / sr if sr else 0.0
+        total = t3 - t0
+        logger.info(
+            "synth[%s] %d chars → %.2fs audio | edge=%.2fs rvc=%.2fs mp3=%.2fs "
+            "total=%.2fs (TTFB) RTF=%.2f",
+            lang, len(text), audio_s, t1 - t0, t2 - t1, t3 - t2,
+            total, (total / audio_s) if audio_s else 0.0,
+        )
+        return mp3
 
 
 @app.get("/v1/health")
