@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 
 import { useSettings } from '@/settings/SettingsContext'
 import { useVoiceCommands, dispatchCommand, type VoiceCommand } from '@/settings/voiceCommands'
 import { useLocalVoice } from '@/settings/localVoice'
-import { speak, cancelSpeech, plainSpeakableText, resolveLang } from '@/settings/speech'
-import { speakSmart } from '@/settings/tts'
+import { speak, plainSpeakableText, resolveLang } from '@/settings/speech'
+import { speakSmart, cancelSmart } from '@/settings/tts'
 import { VoiceControlIndicator } from '@/components/VoiceControlIndicator'
 
 import { TitleBar } from '@/layout/TitleBar'
@@ -51,6 +51,32 @@ export default function App(): JSX.Element {
   const { code: voiceCode, short: lang } = resolveLang(settings.voiceLang)
   const th = lang === 'th'
 
+  // ── Barge-in support: know when Miku is talking + guard against self-echo ────
+  // speakingRef = a read-aloud is in flight; spokenTextRef = its (normalized) text,
+  // so we can drop transcripts that are just Miku's own audio bleeding into the mic.
+  const speakingRef = useRef(false)
+  const spokenTextRef = useRef('')
+  const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, '')
+  const beginSpeaking = (text: string): void => {
+    speakingRef.current = true
+    spokenTextRef.current = norm(text)
+  }
+  const endSpeaking = (): void => {
+    speakingRef.current = false
+    spokenTextRef.current = ''
+  }
+  // Stop whatever Miku is currently saying (any engine) and clear speaking state.
+  const stopSpeaking = (): void => {
+    cancelSmart()
+    endSpeaking()
+  }
+  // True when the heard text is most likely Miku's own playback, not the user.
+  const isLikelyEcho = (t: string): boolean => {
+    if (!speakingRef.current) return false
+    const h = norm(t)
+    return h.length >= 4 && spokenTextRef.current.includes(h)
+  }
+
   const readLastResponse = (): void => {
     const last = [...activeSession.messages].reverse().find((m) => m.role === 'assistant')
     const text = last
@@ -58,12 +84,13 @@ export default function App(): JSX.Element {
       : th
         ? 'ยังไม่มีข้อความให้อ่าน'
         : 'No response to read.'
+    beginSpeaking(text)
     void speakSmart(text, {
       rate: settings.speechRate,
       pitch: settings.speechPitch,
       voiceURI: settings.voiceURI,
       lang: voiceCode,
-    })
+    }).finally(endSpeaking)
   }
 
   const go = (id: ActivityId) => (): void => setActivity(id)
@@ -83,7 +110,7 @@ export default function App(): JSX.Element {
     { phrases: ['toggle sidebar', 'sidebar', 'แถบข้าง', 'ไซด์บาร์'], run: () => setSidebarOpen((v) => !v), confirm: th ? 'สลับแถบข้าง' : 'Sidebar toggled', label: '“sidebar” / “แถบข้าง”' },
     { phrases: ['toggle panel', 'tasks panel', 'activity panel', 'พาเนล', 'แผงงาน'], run: () => setRightOpen((v) => !v), confirm: th ? 'สลับพาเนล' : 'Panel toggled', label: '“panel” / “พาเนล”' },
     { phrases: ['read response', 'read last', 'read message', 'read aloud', 'อ่าน', 'อ่านให้ฟัง', 'อ่านข้อความ'], run: readLastResponse, confirm: '', label: '“read” / “อ่าน”' },
-    { phrases: ['quiet', 'silence', 'be quiet', 'เงียบ', 'เงียบ ๆ'], run: cancelSpeech, confirm: '', label: '“quiet” / “เงียบ”' },
+    { phrases: ['quiet', 'silence', 'be quiet', 'เงียบ', 'เงียบ ๆ'], run: stopSpeaking, confirm: '', label: '“quiet” / “เงียบ”' },
   ]
 
   // ── Listening state machine: active ⇄ paused, or off ───────────────────────
@@ -154,9 +181,11 @@ export default function App(): JSX.Element {
     return true
   }
 
-  // Single entry point for both engines: rename → wake-word gate → dispatch.
+  // Single entry point for both engines: echo guard → rename → wake-word gate →
+  // barge-in (stop the current read) → dispatch.
   const handleVoice = (t: string): void => {
     setHeard(t.toLowerCase().trim())
+    if (isLikelyEcho(t)) return // Miku's own playback re-entering the mic
     if (tryRename(t)) return
     let cmd = t
     if (settings.requireWakeWord) {
@@ -177,6 +206,10 @@ export default function App(): JSX.Element {
       if (start === -1) return // no wake word spoken → ignore
       cmd = t.slice(end).trim() || t
     }
+    // Barge-in: a fresh wake-word/command interrupts whatever Miku is reading so
+    // the app responds immediately, like talking over a chatbot. Safe no-op when
+    // nothing is playing. The new command's own confirmation speaks after this.
+    stopSpeaking()
     dispatchCommand(liveCommands, cmd, voiceCode)
   }
 
