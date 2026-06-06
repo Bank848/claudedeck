@@ -65,21 +65,21 @@ electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `start-dev.bat`) t
      `stopCustom` + each new speak) preempts an in-flight reply at every await boundary — the
      **foundation for barge-in (item 2)**. No server protocol change (1 chunk = 1 request).
 
-**2. Conversational barge-in (the big UX ask).** It must behave like a voice chatbot: while Miku
-   is reading a response, a new wake-word/command should **immediately stop playback and start
-   listening/acting** — don't wait for the read-aloud to finish.
-   - Today TTS playback and STT live in `App.tsx` (`handleVoice`, `voiceState` machine) +
-     `settings/voiceCommands.ts` / `speechRecognition.ts`. STT already keeps running, but TTS
-     isn't cancelled on a fresh command.
-   - Plan: keep the recognizer hot during TTS; on a detected wake-word/command mid-playback, call
-     the existing cancel path (`speechSynthesis.cancel()` / stop the custom `<audio>`), flush the
-     queue, then dispatch the new command. Reuse the "เงียบ"/quiet cancel that already exists.
-   - **Foundation ready (item 1b):** `cancelSmart()` → `stopCustom()` already bumps a generation
-     counter + halts the current chunk, so a mid-reply barge-in stops cleanly at sentence
-     granularity and stale chunks never play. Item 2 = wire the *trigger* (detect a fresh
-     wake-word/command while `voiceState` is "speaking") to that existing cancel + dispatch.
-   - Watch: echo/self-trigger (Miku's own audio re-entering the mic) — gate the recognizer or use
-     the mic level / a short ignore-window while speaking.
+**2. Conversational barge-in — ✅ DONE (2026-06-07, commit d164ea7). Live-verify echo.**
+   `App.tsx handleVoice` now calls `stopSpeaking()` (= `cancelSmart()` across system/edge/custom)
+   right before dispatching a fresh wake-word/command, so a new command interrupts Miku mid-read
+   instead of waiting it out. Builds on item 1b's generation-counter preemption → stops at
+   sentence granularity, no stale chunks. Also fixed: "เงียบ"/quiet used `cancelSpeech` (system
+   only) → now `cancelSmart` (stops Miku too).
+   - **Echo guard:** (a) the wake-word gate (default on) — Miku's reply won't contain the
+     assistant/voice name, so echo never passes; (b) `speakingRef`+`spokenTextRef` track the
+     read-aloud text and drop any transcript that's a substring of what Miku is currently saying
+     (covers the rare case where the reply itself contains the wake word).
+   - **⚠ Live-verify (only doable in the real Electron app — mic + GPU):** say "อ่าน", then
+     mid-read say "<wake-word> หยุด"/"<wake-word> แชท" → read must stop instantly + act, with no
+     self-trigger from Miku's own audio. Note: chat-side `ReadAloudButton` reads still get stopped
+     by barge-in (cancelSmart), but aren't covered by the substring echo guard (only the voice-
+     initiated "อ่าน" path sets `spokenTextRef`) — acceptable; revisit if echo shows up there.
 
 **3. P2 — real backend (`node-pty`).** Brainstorm scope first: spawn real `claude`/`codex` CLI →
    stream into the terminal panel → parse output to drive chat cards / todos / diffs from real
@@ -89,7 +89,8 @@ electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `start-dev.bat`) t
 
 Done earlier: Miku fairseq-free (commit df7e6fa), Storage UI, update banner, report-a-bug,
 voice articulation tuning (language-aware Thai pitch 4 / EN pitch 3),
-**voice latency: measured + sentence-chunk streaming (commits 900fe76, 566eb81).**
+voice latency: measured + sentence-chunk streaming (commits 900fe76, 566eb81),
+**conversational barge-in (commit d164ea7).** Next: P2 node-pty (item 3).
 
 ### Next-session kickoff prompt
 > อ่าน HANDOFF.md + memory (claudedeck-project.md). เสียงมิกุจูนเสร็จแล้ว (ไทย pitch 4 / อังกฤษ
