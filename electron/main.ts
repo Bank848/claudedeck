@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, createWriteStream } from 'node:fs'
+import { existsSync, mkdirSync, createWriteStream, readdirSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
 import { EdgeTTS } from '@andresaya/edge-tts'
 
@@ -245,7 +245,14 @@ function registerIpc(): void {
     return { ok: true }
   })
   ipcMain.handle('miku:status', () => mikuProc !== null)
-  ipcMain.handle('miku:has-model', () => existsSync(join(mikuModelsDir(), 'miku.pth')))
+  ipcMain.handle('miku:has-model', () => {
+    try {
+      const files = readdirSync(mikuModelsDir(), { recursive: true }) as string[]
+      return files.some((f) => String(f).toLowerCase().endsWith('.pth'))
+    } catch {
+      return false
+    }
+  })
   ipcMain.handle('miku:open-models', () => shell.openPath(mikuModelsDir()))
   ipcMain.handle(
     'miku:download-model',

@@ -15,6 +15,7 @@ See README.md for setup. This is a starter — tweak PITCH / BASE_VOICE to taste
 """
 
 import os
+import glob
 import asyncio
 import tempfile
 
@@ -25,8 +26,15 @@ from pydub import AudioSegment  # needs ffmpeg on PATH
 from rvc_python.infer import RVCInference
 
 # ── Config (env-overridable) ─────────────────────────────────────────────────
-MODEL_PATH = os.environ.get("MIKU_MODEL", "models/miku.pth")     # community Miku RVC model
-INDEX_PATH = os.environ.get("MIKU_INDEX", "models/miku.index")   # optional .index (better quality)
+def _find(pattern: str, fallback: str) -> str:
+    """Auto-discover a model file anywhere under models/ (e.g. models/MikuAI/foo.pth)."""
+    if os.path.exists(fallback):
+        return fallback
+    hits = sorted(glob.glob(os.path.join("models", "**", pattern), recursive=True))
+    return hits[0] if hits else fallback
+
+MODEL_PATH = os.environ.get("MIKU_MODEL") or _find("*.pth", "models/miku.pth")
+INDEX_PATH = os.environ.get("MIKU_INDEX") or _find("*.index", "models/miku.index")
 BASE_VOICE = os.environ.get("BASE_VOICE", "th-TH-PremwadeeNeural")  # base TTS = language source
 DEVICE = os.environ.get("RVC_DEVICE", "cuda:0")                   # 'cpu' if no GPU
 PITCH = int(os.environ.get("RVC_PITCH", "6"))                     # semitones up → Miku brightness
