@@ -142,6 +142,33 @@ function registerIpc(): void {
       return tts.toBase64()
     },
   )
+
+  // Custom OpenAI-compatible TTS server (advanced; e.g. a local RVC/VITS Miku).
+  // Done in main to avoid renderer CORS against the user's local server.
+  ipcMain.handle(
+    'tts:custom',
+    async (
+      _e,
+      args: { url: string; voice: string; model: string; apiKey?: string; input: string },
+    ): Promise<string> => {
+      const base = args.url.replace(/\/+$/, '')
+      const headers: Record<string, string> = { 'content-type': 'application/json' }
+      if (args.apiKey) headers.authorization = `Bearer ${args.apiKey}`
+      const res = await fetch(`${base}/v1/audio/speech`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: args.model || 'tts-1',
+          voice: args.voice,
+          input: args.input,
+          response_format: 'mp3',
+        }),
+      })
+      if (!res.ok) throw new Error(`custom tts ${res.status}`)
+      const buf = Buffer.from(await res.arrayBuffer())
+      return buf.toString('base64')
+    },
+  )
 }
 
 app.whenReady().then(() => {

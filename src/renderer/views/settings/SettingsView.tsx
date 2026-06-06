@@ -174,7 +174,9 @@ export default function SettingsView(): JSX.Element {
             desc={
               settings.ttsEngine === 'edge'
                 ? 'Edge-TTS — free neural voices (incl. Thai), no API key, unlimited. Needs internet.'
-                : 'System voices with pitch personas — instant & offline.'
+                : settings.ttsEngine === 'custom'
+                  ? 'Custom local server (advanced) — plug in your own RVC/VITS Miku.'
+                  : 'System voices with pitch personas — instant & offline.'
             }
           >
             <Segmented
@@ -184,9 +186,68 @@ export default function SettingsView(): JSX.Element {
               options={[
                 { value: 'system', label: 'System' },
                 { value: 'edge', label: 'Edge-TTS (free)' },
+                { value: 'custom', label: 'Custom (Miku)' },
               ]}
             />
           </Row>
+
+          {settings.ttsEngine === 'custom' && (
+            <>
+              <p className="border-b border-border px-4 py-3 text-xs text-amber-400/90">
+                ⚠️ ขั้นสูง: ต้องรัน TTS server เอง (เช่น RVC/VITS Miku — โหลดโมเดลฟรีจาก
+                voice-models.com). <strong>ใช้ทรัพยากรเยอะ อาจมีดีเลย์</strong> โดยเฉพาะ GPU อ่อน/CPU
+                — แต่ได้เสียง Miku จริง. ถ้า server ล่มจะถอยไปใช้เสียงระบบให้อัตโนมัติ
+              </p>
+              <Row label="Server URL" desc="OpenAI-compatible /v1/audio/speech endpoint.">
+                <input
+                  aria-label="Custom server URL"
+                  value={settings.customUrl}
+                  onChange={(e) => update('customUrl', e.target.value)}
+                  className="w-56 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
+                />
+              </Row>
+              <Row label="Voice" desc="Voice name on your server (e.g. miku).">
+                <input
+                  aria-label="Custom voice"
+                  value={settings.customVoice}
+                  onChange={(e) => update('customVoice', e.target.value)}
+                  className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
+                />
+              </Row>
+              <Row label="Model" desc="Model id (default tts-1).">
+                <input
+                  aria-label="Custom model"
+                  value={settings.customModel}
+                  onChange={(e) => update('customModel', e.target.value)}
+                  className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
+                />
+              </Row>
+              <Row label="API key" desc="Optional bearer token.">
+                <input
+                  aria-label="Custom API key"
+                  type="password"
+                  value={settings.customApiKey}
+                  onChange={(e) => update('customApiKey', e.target.value)}
+                  placeholder="(none)"
+                  className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
+                />
+              </Row>
+              <Row label="Test" desc="Synthesize a sample via your server.">
+                <button
+                  type="button"
+                  onClick={testVoice}
+                  className="flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+                >
+                  <Play size={13} />
+                  Test
+                </button>
+              </Row>
+              <p className="px-4 py-3 text-xs text-fg-muted">
+                Works with any OpenAI-style TTS server (e.g. openedai-speech, openai-edge-tts, or an
+                RVC/VITS wrapper). Run it on your GPU, then set the URL + voice above.
+              </p>
+            </>
+          )}
 
           {settings.ttsEngine === 'edge' && (
             <div className="border-b border-border px-4 py-3">

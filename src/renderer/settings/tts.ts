@@ -8,13 +8,25 @@
  */
 import { speak as systemSpeak, cancelSpeech as cancelSystem, isSpeechSupported } from './speech'
 import { edgeSpeak, stopEdge } from './edgeTts'
+import { customSpeak, stopCustom } from './customTts'
 
 interface TtsConfig {
-  engine: 'system' | 'edge'
+  engine: 'system' | 'edge' | 'custom'
   edgeVoice: string
+  customUrl: string
+  customVoice: string
+  customModel: string
+  customApiKey: string
 }
 
-let cfg: TtsConfig = { engine: 'system', edgeVoice: 'th-TH-PremwadeeNeural' }
+let cfg: TtsConfig = {
+  engine: 'system',
+  edgeVoice: 'th-TH-PremwadeeNeural',
+  customUrl: '',
+  customVoice: '',
+  customModel: 'tts-1',
+  customApiKey: '',
+}
 
 export function setTtsConfig(c: TtsConfig): void {
   cfg = c
@@ -39,10 +51,19 @@ export function speakSmart(text: string, opts: SpeakOpts = {}): Promise<void> {
       systemSpeakPromise(text, opts),
     )
   }
+  if (cfg.engine === 'custom' && cfg.customUrl) {
+    return customSpeak(text, {
+      url: cfg.customUrl,
+      voice: cfg.customVoice,
+      model: cfg.customModel,
+      apiKey: cfg.customApiKey,
+    }).catch(() => systemSpeakPromise(text, opts))
+  }
   return systemSpeakPromise(text, opts)
 }
 
 export function cancelSmart(): void {
   stopEdge()
+  stopCustom()
   cancelSystem()
 }

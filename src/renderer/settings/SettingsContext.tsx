@@ -31,10 +31,18 @@ export interface Settings {
   sttEngine: 'browser' | 'local'
   /** Whisper model size for the local engine. */
   whisperModel: 'Xenova/whisper-tiny' | 'Xenova/whisper-base'
-  /** TTS engine: system (offline) or Edge-TTS (free neural, online). Both work out of the box. */
-  ttsEngine: 'system' | 'edge'
+  /** TTS engine: system (offline), Edge-TTS (free), or a custom local server (advanced, e.g. RVC/VITS Miku). */
+  ttsEngine: 'system' | 'edge' | 'custom'
   /** Edge-TTS voice id (e.g. th-TH-PremwadeeNeural). */
   edgeVoice: string
+  /** Custom OpenAI-compatible TTS server base URL (advanced; e.g. local RVC/VITS). */
+  customUrl: string
+  /** Custom server voice name. */
+  customVoice: string
+  /** Custom server model name (OpenAI-style; default tts-1). */
+  customModel: string
+  /** Optional bearer key for the custom server. */
+  customApiKey: string
   /** Force-reduce animations regardless of OS setting. */
   reduceMotion: boolean
   /** Brighter text + stronger borders for low vision. */
@@ -59,6 +67,10 @@ const DEFAULTS: Settings = {
   whisperModel: 'Xenova/whisper-base',
   ttsEngine: 'system',
   edgeVoice: 'th-TH-PremwadeeNeural',
+  customUrl: 'http://127.0.0.1:5050',
+  customVoice: 'miku',
+  customModel: 'tts-1',
+  customApiKey: '',
   reduceMotion: false,
   highContrast: false,
   uiScale: 'normal',
@@ -107,8 +119,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }): J
 
   // Publish TTS engine config to the routing layer.
   useEffect(() => {
-    setTtsConfig({ engine: settings.ttsEngine, edgeVoice: settings.edgeVoice })
-  }, [settings.ttsEngine, settings.edgeVoice])
+    setTtsConfig({
+      engine: settings.ttsEngine,
+      edgeVoice: settings.edgeVoice,
+      customUrl: settings.customUrl,
+      customVoice: settings.customVoice,
+      customModel: settings.customModel,
+      customApiKey: settings.customApiKey,
+    })
+  }, [
+    settings.ttsEngine,
+    settings.edgeVoice,
+    settings.customUrl,
+    settings.customVoice,
+    settings.customModel,
+    settings.customApiKey,
+  ])
 
   // Stop any speech if read-aloud is turned off, and on Escape.
   useEffect(() => {

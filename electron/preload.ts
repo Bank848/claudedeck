@@ -17,6 +17,14 @@ const api = {
   /** Free Edge-TTS — returns base64 MP3. */
   edgeTts: (args: { text: string; voice?: string; rate?: string; pitch?: string }): Promise<string> =>
     ipcRenderer.invoke('tts:edge', args),
+  /** Custom OpenAI-compatible TTS server — returns base64 MP3. */
+  customTts: (args: {
+    url: string
+    voice: string
+    model: string
+    apiKey?: string
+    input: string
+  }): Promise<string> => ipcRenderer.invoke('tts:custom', args),
 }
 
 contextBridge.exposeInMainWorld('claudedeck', api)
