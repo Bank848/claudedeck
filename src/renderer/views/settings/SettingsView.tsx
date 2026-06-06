@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic, HardDrive, Trash2 } from 'lucide-react'
+import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic, HardDrive, Trash2, Bug, RefreshCw } from 'lucide-react'
 import { useSettings } from '@/settings/SettingsContext'
 import {
   isSpeechSupported,
@@ -16,6 +16,7 @@ import { speakSmart } from '@/settings/tts'
 import { EDGE_VOICES, edgeSpeak } from '@/settings/edgeTts'
 import { useMikuServer } from '@/settings/mikuServer'
 import { estimateUsage, clearCachedData, formatBytes } from '@/settings/storage'
+import { getAppInfo, checkForUpdate, openExternal, reportBugUrl, type AppInfo } from '@/settings/appInfo'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
 
 export default function SettingsView(): JSX.Element {
@@ -30,9 +31,12 @@ export default function SettingsView(): JSX.Element {
   const [dlStatus, setDlStatus] = useState('')
   const [cacheUsage, setCacheUsage] = useState(0)
   const [clearing, setClearing] = useState(false)
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const [updateMsg, setUpdateMsg] = useState('')
 
   useEffect(() => {
     void estimateUsage().then(setCacheUsage)
+    void getAppInfo().then(setAppInfo)
   }, [])
 
   const voiceOptions = [
@@ -590,10 +594,45 @@ export default function SettingsView(): JSX.Element {
 
         {/* About */}
         <Section icon={<Sparkles size={16} className="text-accent" />} title="About">
-          <p className="text-sm text-fg-muted">
-            ClaudeDeck — a dark-mode desktop shell that masks the Claude Code CLI. Phase 1
-            (design-first) preview.
-          </p>
+          <Row
+            label="ClaudeDeck"
+            desc={
+              appInfo
+                ? `เวอร์ชัน ${appInfo.version} · ${appInfo.platform} ${appInfo.arch} · Electron ${appInfo.electron}`
+                : 'A dark-mode desktop shell that masks the Claude Code CLI. Phase 1 (design-first) preview.'
+            }
+          >
+            <button
+              type="button"
+              onClick={async () => {
+                setUpdateMsg('กำลังเช็ก…')
+                const r = await checkForUpdate()
+                setUpdateMsg(
+                  !r.ok
+                    ? `เช็กไม่ได้: ${r.error ?? ''}`
+                    : r.hasUpdate
+                      ? `มีเวอร์ชันใหม่ v${r.latest} — เปิดหน้าดาวน์โหลดให้แล้ว`
+                      : 'เป็นเวอร์ชันล่าสุดแล้ว ✓',
+                )
+                if (r.ok && r.hasUpdate && r.url) openExternal(r.url)
+              }}
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg"
+            >
+              <RefreshCw size={13} />
+              เช็กอัปเดต
+            </button>
+          </Row>
+          {updateMsg && <p className="px-4 py-2 text-xs text-fg-muted">{updateMsg}</p>}
+          <Row label="พบบั๊ก?" desc="เปิด GitHub Issue พร้อมเวอร์ชันแอป + ระบบปฏิบัติการให้อัตโนมัติ.">
+            <button
+              type="button"
+              onClick={() => openExternal(reportBugUrl(appInfo))}
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:border-accent hover:text-accent"
+            >
+              <Bug size={13} />
+              รายงานบั๊ก
+            </button>
+          </Row>
         </Section>
       </div>
     </div>

@@ -9,6 +9,7 @@ import { speakSmart } from '@/settings/tts'
 import { VoiceControlIndicator } from '@/components/VoiceControlIndicator'
 
 import { TitleBar } from '@/layout/TitleBar'
+import UpdateBanner from '@/components/UpdateBanner'
 import { ActivityBar } from '@/layout/ActivityBar'
 import { Sidebar } from '@/layout/Sidebar'
 import { TabStrip } from '@/layout/TabStrip'
@@ -271,6 +272,8 @@ export default function App(): JSX.Element {
         onToggleRight={() => setRightOpen((v) => !v)}
         onToggleBottom={() => setBottomOpen((v) => !v)}
       />
+
+      <UpdateBanner />
 
       <div className="flex min-h-0 flex-1">
         <ActivityBar

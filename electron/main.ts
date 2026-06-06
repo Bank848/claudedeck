@@ -7,6 +7,18 @@ import { EdgeTTS } from '@andresaya/edge-tts'
 
 const isDev = !app.isPackaged
 const MIN_SPLASH_MS = 1100
+const REPO = 'Bank848/claudedeck'
+
+/** True if dotted-numeric version `a` is strictly newer than `b` (e.g. 0.2.0 > 0.1.0). */
+function isNewer(a: string, b: string): boolean {
+  const pa = a.split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = b.split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (d !== 0) return d > 0
+  }
+  return false
+}
 
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
@@ -193,6 +205,35 @@ function registerIpc(): void {
   })
   ipcMain.on('window:close', () => mainWindow?.close())
   ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
+
+  // App meta + external links + update check (GitHub Releases).
+  ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    electron: process.versions.electron,
+  }))
+  ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
+  ipcMain.handle('app:check-update', async () => {
+    try {
+      const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+        headers: { 'user-agent': 'ClaudeDeck', accept: 'application/vnd.github+json' },
+      })
+      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
+      const data = (await res.json()) as { tag_name?: string; html_url?: string }
+      const latest = (data.tag_name ?? '').replace(/^v/, '')
+      const current = app.getVersion()
+      return {
+        ok: true,
+        current,
+        latest,
+        url: data.html_url || `https://github.com/${REPO}/releases`,
+        hasUpdate: !!latest && isNewer(latest, current),
+      }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
 
   // Free Edge-TTS (Microsoft online neural voices) — runs here in the main
   // process because Chromium renderers can't open the Edge TTS socket directly.

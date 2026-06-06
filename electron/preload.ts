@@ -14,6 +14,21 @@ const api = {
     ipcRenderer.on('window:maximized-changed', listener)
     return () => ipcRenderer.removeListener('window:maximized-changed', listener)
   },
+  /** App metadata, external links, and update checks. */
+  app: {
+    info: (): Promise<{ version: string; platform: string; arch: string; electron: string }> =>
+      ipcRenderer.invoke('app:info'),
+    openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
+    checkUpdate: (): Promise<{
+      ok: boolean
+      error?: string
+      current?: string
+      latest?: string
+      url?: string
+      hasUpdate?: boolean
+    }> => ipcRenderer.invoke('app:check-update'),
+  },
+
   /** Free Edge-TTS — returns base64 MP3. */
   edgeTts: (args: { text: string; voice?: string; rate?: string; pitch?: string }): Promise<string> =>
     ipcRenderer.invoke('tts:edge', args),
