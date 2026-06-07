@@ -1,11 +1,13 @@
 import { X, TerminalSquare } from 'lucide-react'
 import TerminalOutput from '@/views/terminal/TerminalOutput'
+import type { TerminalLine } from '@/mock/fixtures'
 
 interface BottomPanelProps {
   onClose: () => void
+  lines?: TerminalLine[]
 }
 
-export function BottomPanel({ onClose }: BottomPanelProps): JSX.Element {
+export function BottomPanel({ onClose, lines }: BottomPanelProps): JSX.Element {
   return (
     <section className="flex h-full min-h-0 flex-col border-t border-border bg-bg">
       <div className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-surface px-2">
@@ -26,7 +28,7 @@ export function BottomPanel({ onClose }: BottomPanelProps): JSX.Element {
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <TerminalOutput />
+        <TerminalOutput lines={lines} />
       </div>
     </section>
   )

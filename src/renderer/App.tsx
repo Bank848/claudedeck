@@ -357,7 +357,7 @@ export default function App(): JSX.Element {
                 <>
                   <PanelResizeHandle className="h-px bg-border transition-colors hover:bg-accent" />
                   <Panel id="bottom" order={2} defaultSize={26} minSize={10} maxSize={60}>
-                    <BottomPanel onClose={() => setBottomOpen(false)} />
+                    <BottomPanel onClose={() => setBottomOpen(false)} lines={activeSession.terminalLines} />
                   </Panel>
                 </>
               )}
