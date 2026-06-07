@@ -67,3 +67,15 @@ function lastStreamingIndex(messages: ChatMessage[]): number {
   }
   return -1
 }
+
+import { useReducer } from 'react'
+
+export interface UseSessions {
+  state: SessionsState
+  dispatch: React.Dispatch<SessionsAction>
+}
+
+export function useSessions(): UseSessions {
+  const [state, dispatch] = useReducer(sessionsReducer, undefined, initialSessionsState)
+  return { state, dispatch }
+}

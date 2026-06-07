@@ -24,10 +24,14 @@ import SkillsBrowser from '@/views/skills/SkillsBrowser'
 import UsageView from '@/views/usage/UsageView'
 import SettingsView from '@/views/settings/SettingsView'
 
-import { SESSIONS, ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
+import { ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
+import { useSessions } from '@/state/useSessions'
 
 export default function App(): JSX.Element {
   const { settings, update } = useSettings()
+  const { state: sessionsState, dispatch: sessionsDispatch } = useSessions()
+  const sessions = sessionsState.sessions
+  void sessionsDispatch // wired into the live turn dispatcher in Task 12
   const [activity, setActivity] = useState<ActivityId>('chat')
   const [activeSessionId, setActiveSessionId] = useState<string>(ACTIVE_SESSION_ID)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -35,17 +39,17 @@ export default function App(): JSX.Element {
   const [bottomOpen, setBottomOpen] = useState(true)
 
   const activeSession = useMemo(
-    () => SESSIONS.find((s) => s.id === activeSessionId) ?? SESSIONS[0],
-    [activeSessionId],
+    () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0],
+    [sessions, activeSessionId],
   )
 
   /* ── Voice control for blind users ──────────────────────────────────────── */
 
   const cycleSession = (dir: 1 | -1): void =>
     setActiveSessionId((cur) => {
-      const i = SESSIONS.findIndex((s) => s.id === cur)
-      const next = (i + dir + SESSIONS.length) % SESSIONS.length
-      return SESSIONS[next].id
+      const i = sessions.findIndex((s) => s.id === cur)
+      const next = (i + dir + sessions.length) % sessions.length
+      return sessions[next].id
     })
 
   const { code: voiceCode, short: lang } = resolveLang(settings.voiceLang)
@@ -320,7 +324,7 @@ export default function App(): JSX.Element {
               <Panel id="sidebar" order={1} defaultSize={20} minSize={14} maxSize={32}>
                 <Sidebar
                   activity={activity}
-                  sessions={SESSIONS}
+                  sessions={sessions}
                   activeSessionId={activeSessionId}
                   onSelectSession={setActiveSessionId}
                 />
@@ -334,7 +338,7 @@ export default function App(): JSX.Element {
               <Panel id="main" order={1} minSize={30}>
                 <div className="flex h-full min-h-0 flex-col bg-bg">
                   <TabStrip
-                    sessions={SESSIONS}
+                    sessions={sessions}
                     activeSessionId={activeSessionId}
                     onSelect={setActiveSessionId}
                   />
