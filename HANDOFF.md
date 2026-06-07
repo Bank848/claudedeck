@@ -81,16 +81,38 @@ electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `start-dev.bat`) t
      by barge-in (cancelSmart), but aren't covered by the substring echo guard (only the voice-
      initiated "อ่าน" path sets `spokenTextRef`) — acceptable; revisit if echo shows up there.
 
-**3. P2 — real backend (`node-pty`).** Brainstorm scope first: spawn real `claude`/`codex` CLI →
-   stream into the terminal panel → parse output to drive chat cards / todos / diffs from real
-   data → voice command → CLI → read the response aloud (ties into #1/#2).
+**3. P2 — real `claude` CLI backend — ✅ Slice A DONE (2026-06-08).**
+   Decision: NOT node-pty — spawn `claude -p --output-format stream-json --verbose` over stdout
+   pipes (the Miku `spawn`/`taskkill` pattern; no shell, argv array, validated cwd, default
+   `--permission-mode plan`). Slice A shipped (plan: `docs/superpowers/plans/2026-06-08-p2-claude-cli-slice-a.md`):
+   - **Spine:** `useSessions` reducer (pure, tested) replaces the static `SESSIONS` import; a pure
+     `foldEvent` mapper folds stream-json `system`/`assistant`/`user`/`result` events into
+     `ChatMessage.parts[]` (text → tool card → text). 17 vitest tests (mapper + reducer + voice).
+   - **Main↔renderer:** `electron/claude.ts` (`detectClaude`/`startTurn`/`cancelTurn`) +
+     `claude:*` IPC + preload `claude` surface + `claudeClient.ts` renderer wrapper.
+   - **UI:** Composer `onSend` + imperative `submit()`; live per-session terminal lines; StatusBar
+     **Live/Mock** toggle + **permission-mode** dropdown (keyboard + aria reachable).
+   - **A11y (first-class):** voice **"ส่ง"** → `composerRef.submit()`; spoken status via `speakSmart`
+     (user's chosen voice) — "กำลังคิด"/"กำลังใช้ <tool>"/"เสร็จแล้ว"/"เกิดข้อผิดพลาด"; aria-live
+     region; **"อ่าน"** reads the live reply; voice live/mock + permission commands; `dispatchCommand`
+     now **longest-match** so natural Thai sentences resolve (short keyword can't hijack a sentence).
+   - **Deviation (recorded):** dropped `--include-partial-messages` (token-level deltas) — message-level
+     events already read as streaming and fold deterministically. Deltas + auto-read-while-streaming → Slice C.
+   - **⚠ Manual verify pending (needs real Electron app + installed `claude` CLI):**
+     sighted smoke (toggle → Live → send "list two colors" → assistant grows, terminal logs, `--resume`
+     keeps context on follow-up) AND blind UX eyes-closed (dictate → "ส่ง" → hear spoken cues in the
+     selected voice → "อ่าน" reads reply → "โหมดสด"/"โหมดวางแผน" change controls). Automated gate
+     (17 tests + typecheck + build) is green.
+   - **Remaining:** Slice B (todos/diffs from real data) + Slice C (auto-read while streaming, voice
+     cancel, partial-message deltas, codex adapter via the same IPC seam).
 
 **4. Polish / package:** electron-builder distributable.
 
 Done earlier: Miku fairseq-free (commit df7e6fa), Storage UI, update banner, report-a-bug,
 voice articulation tuning (language-aware Thai pitch 4 / EN pitch 3),
 voice latency: measured + sentence-chunk streaming (commits 900fe76, 566eb81),
-**conversational barge-in (commit d164ea7).** Next: P2 node-pty (item 3).
+**conversational barge-in (commit d164ea7), P2 Slice A — real claude CLI backend (2026-06-08).**
+Next: manual-verify Slice A in the real app, then P2 Slice B (todos/diffs from real data).
 
 ### Next-session kickoff prompt
 > อ่าน HANDOFF.md + memory (claudedeck-project.md). เสียงมิกุจูนเสร็จแล้ว (ไทย pitch 4 / อังกฤษ
