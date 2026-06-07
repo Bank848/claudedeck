@@ -3,9 +3,17 @@ import { Sparkles } from 'lucide-react'
 import type { Session } from '@/mock/fixtures'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
-import { Composer } from './Composer'
+import { Composer, type ComposerHandle } from './Composer'
 
-export default function ChatView({ session }: { session: Session }): JSX.Element {
+export default function ChatView({
+  session,
+  onSend,
+  composerRef,
+}: {
+  session: Session
+  onSend: (text: string, modelId: string) => void
+  composerRef?: React.Ref<ComposerHandle>
+}): JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom when messages change
@@ -36,7 +44,7 @@ export default function ChatView({ session }: { session: Session }): JSX.Element
       </div>
 
       {/* Sticky composer */}
-      <Composer model={session.model} />
+      <Composer ref={composerRef} model={session.model} onSend={onSend} />
     </div>
   )
 }

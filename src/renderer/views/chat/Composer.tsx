@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { ArrowUp, Slash, Mic } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
 import { useSettings } from '@/settings/SettingsContext'
@@ -6,9 +6,16 @@ import { useDictation } from '@/settings/speechRecognition'
 import { resolveLang } from '@/settings/speech'
 import { MODELS } from '@/mock/fixtures'
 
+export interface ComposerHandle {
+  /** Submit the current text programmatically (used by the "ส่ง" voice command). */
+  submit: () => void
+}
+
 interface ComposerProps {
   /** Session model label, used to seed the initial selection. */
   model: string
+  /** Called with the message text + selected model id when the user sends. */
+  onSend: (text: string, modelId: string) => void
 }
 
 function seedModelId(label: string): string {
@@ -16,7 +23,10 @@ function seedModelId(label: string): string {
   return hit?.id ?? 'opus-4-8'
 }
 
-export function Composer({ model }: ComposerProps): JSX.Element {
+export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
+  { model, onSend },
+  ref,
+): JSX.Element {
   const { settings } = useSettings()
   const [value, setValue] = useState('')
   const [modelId, setModelId] = useState(() => seedModelId(model))
@@ -34,10 +44,20 @@ export function Composer({ model }: ComposerProps): JSX.Element {
     requestAnimationFrame(resize)
   }, resolveLang(settings.voiceLang).code)
 
+  const submit = (): void => {
+    const text = value.trim()
+    if (!text) return
+    onSend(text, modelId)
+    setValue('')
+    requestAnimationFrame(resize)
+  }
+
+  useImperativeHandle(ref, () => ({ submit }))
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      // mock send — no-op
+      submit()
     }
   }
 
@@ -94,8 +114,10 @@ export function Composer({ model }: ComposerProps): JSX.Element {
               )}
               <button
                 type="button"
+                onClick={submit}
                 disabled={!canSend}
                 title="Send message"
+                aria-label="Send message"
                 className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                   canSend
                     ? 'bg-accent hover:bg-accent-hover text-white cursor-pointer'
@@ -116,4 +138,4 @@ export function Composer({ model }: ComposerProps): JSX.Element {
       </div>
     </div>
   )
-}
+})

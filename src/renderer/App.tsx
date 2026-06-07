@@ -26,12 +26,14 @@ import SettingsView from '@/views/settings/SettingsView'
 
 import { ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
 import { useSessions } from '@/state/useSessions'
+import type { ComposerHandle } from '@/views/chat/Composer'
 
 export default function App(): JSX.Element {
   const { settings, update } = useSettings()
   const { state: sessionsState, dispatch: sessionsDispatch } = useSessions()
   const sessions = sessionsState.sessions
   void sessionsDispatch // wired into the live turn dispatcher in Task 12
+  const composerRef = useRef<ComposerHandle>(null)
   const [activity, setActivity] = useState<ActivityId>('chat')
   const [activeSessionId, setActiveSessionId] = useState<string>(ACTIVE_SESSION_ID)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -267,6 +269,11 @@ export default function App(): JSX.Element {
     }
   }, [useLocalStt, startTalk, stopTalk])
 
+  const handleSend = (text: string, modelId: string): void => {
+    // Temporary mock echo — replaced by the live/mock turn dispatcher in Task 12.
+    void text; void modelId
+  }
+
   const centerView = (() => {
     switch (activity) {
       case 'tasks':
@@ -282,7 +289,7 @@ export default function App(): JSX.Element {
       case 'chat':
       case 'sessions':
       default:
-        return <ChatView session={activeSession} />
+        return <ChatView session={activeSession} onSend={handleSend} composerRef={composerRef} />
     }
   })()
 
