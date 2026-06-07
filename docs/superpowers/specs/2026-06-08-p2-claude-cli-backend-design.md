@@ -10,7 +10,9 @@
 
 One sentence: **spawn the real `claude` CLI per turn, parse its `stream-json` events, and render the streaming reply (text + tool cards) into the existing chat + terminal UI instead of mock data.**
 
-Slice A is deliberately narrow. It ships *real data into chat + terminal*. It does **not** map todos/diffs (Slice B) and does **not** wire the voice→CLI→read-aloud loop (Slice C). Those are designed-for but out of scope here.
+Slice A is deliberately narrow. It ships *real data into chat + terminal*. It does **not** map todos/diffs (Slice B). The **fully hands-free voice loop with auto-read + barge-in** is Slice C — BUT the **voice *input* side and spoken status are first-class in Slice A** (see §3a). A blind user must be able to send a message and know what happened *the moment* the real CLI is wired; voice is not a later add-on for this app.
+
+> **Non-negotiable principle:** ClaudeDeck is a screen-reader-grade accessibility tool first. Every capability P2 adds must be reachable and operable **by voice and keyboard alone, without sight.** No new control may ship sight-only. If a sighted user can do X, a blind user can do X by voice.
 
 ## 2. Decisions (locked)
 
@@ -35,6 +37,17 @@ CLI flags above were verified against the installed `claude --help` (2026-06-08)
 - `Composer.tsx:40` — send is a literal `// mock send — no-op`; no `onSend` prop; the selected `modelId` (`:21`) is Composer-local and never surfaced upward.
 
 **Spine:** introduce a single **`useSessions` reducer** (or context), **seeded from the `SESSIONS` fixture** so existing tabs keep rendering. The active session's `messages` becomes mutable, and we add a per-session `terminalLines: TerminalLine[]` field. `streamMapper` dispatches into this reducer. Everything else hangs off this spine.
+
+## 3a. Accessibility — first-class in Slice A (blind UX)
+
+The app already has the spine: dual wake-word, STT (browser + local Whisper), TTS (system/edge/custom Miku), a voice command set, and an `aria-live` `VoiceControlIndicator`. P2 must **extend that spine to the new live-CLI surface**, not bypass it. Concretely, Slice A includes:
+
+1. **Send by voice.** Add a `"ส่ง" / "send" / "ส่งข้อความ"` voice command that submits the current composer text via the new `onSend`. Dictation (`useDictation`, `Composer.tsx:32`) already fills the textarea; today it dead-ends at the no-op (`:40`). Wiring `onSend` (§3) must therefore expose a programmatic submit the voice command can call — **dictate → "ส่ง" → real CLI turn**, fully hands-free.
+2. **Spoken turn status.** When a turn starts/ends and when a tool runs, speak a short cue via the existing `speakSmart` + push to the `aria-live` region: e.g. "กำลังคิด…", "กำลังอ่านไฟล์ …", "เสร็จแล้ว" / "เกิดข้อผิดพลาด". A blind user must know the agent is working without watching the screen.
+3. **Read the live reply.** The existing `"อ่าน" / "read response"` command (`App.tsx:80,112`) currently reads the last *mock* assistant message. It must read the **live** streamed reply from `useSessions` state. (Auto-reading *as it streams* + barge-in over it stays Slice C; manual "อ่าน" on the finished/whole reply is Slice A.)
+4. **Everything stays voice + keyboard reachable.** The new Live/Mock toggle and permission-mode dropdown must be operable by voice command and keyboard (not mouse-only), with `aria-label`s and focus styles. Tab switching, terminal toggle, etc. already have voice commands — verify they still work with the live session.
+
+These are small additions on top of existing machinery (one new command + a status-speak helper + pointing "อ่าน" at live state), but they are **required** for Slice A to be usable by the target user. They are listed as explicit plan tasks, not "nice to have."
 
 ## 4. Architecture
 
@@ -100,6 +113,7 @@ Composer onSend(text, modelId)
 - **Unit:** `streamMapper.ts` against captured stream-json event arrays (AAA, no Electron) → assert resulting `ChatMessage.parts` for: plain text, partial deltas, a tool_use→tool_result round-trip, an error result. Coverage anchor.
 - **Unit:** `useSessions` reducer transitions (seed, append message, grow streaming message, finalize).
 - **Manual (real Electron):** connect → send → observe streaming text + a Read/Grep tool card resolving + terminal log; Stop button kills the turn.
+- **Manual (blind UX — required):** with the screen *not looked at* — dictate a prompt by voice, say "ส่ง", hear the spoken "กำลังคิด…/เสร็จแล้ว" cues, say "อ่าน" and hear the real reply; confirm tab-switch + terminal-toggle voice commands still work against the live session.
 
 ## 9. Explicitly out of scope (designed-for, deferred)
 
