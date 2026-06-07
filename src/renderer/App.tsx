@@ -39,6 +39,7 @@ export default function App(): JSX.Element {
   const [liveMode, setLiveMode] = useState(false)
   const [claudeOk, setClaudeOk] = useState(false)
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('plan')
+  const [liveStatus, setLiveStatus] = useState('')
 
   // Probe for the claude CLI once.
   useEffect(() => {
@@ -130,6 +131,11 @@ export default function App(): JSX.Element {
     { phrases: ['toggle sidebar', 'sidebar', 'แถบข้าง', 'ไซด์บาร์'], run: () => setSidebarOpen((v) => !v), confirm: th ? 'สลับแถบข้าง' : 'Sidebar toggled', label: '“sidebar” / “แถบข้าง”' },
     { phrases: ['toggle panel', 'tasks panel', 'activity panel', 'พาเนล', 'แผงงาน'], run: () => setRightOpen((v) => !v), confirm: th ? 'สลับพาเนล' : 'Panel toggled', label: '“panel” / “พาเนล”' },
     { phrases: ['read response', 'read last', 'read message', 'read aloud', 'อ่าน', 'อ่านให้ฟัง', 'อ่านข้อความ'], run: readLastResponse, confirm: '', label: '“read” / “อ่าน”' },
+    { phrases: ['send', 'send message', 'submit', 'ส่ง', 'ส่งข้อความ', 'ส่งเลย', 'ส่งให้หน่อย'], run: () => composerRef.current?.submit(), confirm: th ? 'ส่งแล้ว' : 'Sent', label: '“send” / “ส่ง”' },
+    { phrases: ['live mode', 'go live', 'connect', 'โหมดสด', 'เชื่อมต่อ', 'ใช้งานจริง'], run: () => { if (claudeOk) setLiveMode(true) }, confirm: th ? 'โหมดสด' : 'Live mode', label: '“live” / “โหมดสด”' },
+    { phrases: ['mock mode', 'offline mode', 'โหมดจำลอง', 'โหมดทดสอบ'], run: () => setLiveMode(false), confirm: th ? 'โหมดจำลอง' : 'Mock mode', label: '“mock” / “โหมดจำลอง”' },
+    { phrases: ['plan mode', 'read only', 'โหมดวางแผน', 'อ่านอย่างเดียว'], run: () => setPermissionMode('plan'), confirm: th ? 'โหมดวางแผน' : 'Plan mode', label: '“plan mode” / “โหมดวางแผน”' },
+    { phrases: ['accept edits', 'allow edits', 'ยอมรับการแก้ไข', 'อนุญาตแก้ไข'], run: () => setPermissionMode('acceptEdits'), confirm: th ? 'ยอมรับการแก้ไข' : 'Accept edits', label: '“accept edits” / “ยอมรับการแก้ไข”' },
     { phrases: ['quiet', 'silence', 'be quiet', 'เงียบ', 'เงียบ ๆ'], run: stopSpeaking, confirm: '', label: '“quiet” / “เงียบ”' },
   ]
 
@@ -285,6 +291,7 @@ export default function App(): JSX.Element {
 
   const speakStatus = (text: string): void => {
     if (!text) return
+    setLiveStatus(text)
     void speakSmart(text, {
       rate: settings.speechRate,
       pitch: settings.speechPitch,
@@ -401,6 +408,7 @@ export default function App(): JSX.Element {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg text-fg">
+      <div className="sr-only" role="status" aria-live="polite">{liveStatus}</div>
       <VoiceControlIndicator
         enabled={settings.voiceCommands}
         mode={settings.sttEngine}

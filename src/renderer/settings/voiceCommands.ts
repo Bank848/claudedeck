@@ -17,19 +17,35 @@ export interface VoiceCommand {
   label: string
 }
 
-/** Match a transcript to a command, run it, and speak its confirmation. */
+/**
+ * Match a transcript to a command and run it. Blind users speak natural
+ * sentences ("ช่วยอ่านให้ฟังหน่อย"), so we substring-match each phrase against
+ * the whole transcript and let the LONGEST (most specific) matching phrase win —
+ * this stops a short Thai keyword (e.g. "งาน") from hijacking a longer sentence
+ * (e.g. "เริ่มทำงานต่อ"). Ties keep declaration order (first wins).
+ */
 export function dispatchCommand(
   commands: VoiceCommand[],
   raw: string,
   lang = 'en-US',
 ): VoiceCommand | null {
   const t = raw.toLowerCase().trim()
-  const cmd = commands.find((c) => c.phrases.some((p) => t.includes(p.toLowerCase())))
-  if (cmd) {
-    cmd.run()
-    if (cmd.confirm) speak(cmd.confirm, { rate: 1.05, lang })
+  let best: VoiceCommand | null = null
+  let bestLen = 0
+  for (const c of commands) {
+    for (const p of c.phrases) {
+      const lp = p.toLowerCase()
+      if (lp && t.includes(lp) && lp.length > bestLen) {
+        best = c
+        bestLen = lp.length
+      }
+    }
   }
-  return cmd ?? null
+  if (best) {
+    best.run()
+    if (best.confirm) speak(best.confirm, { rate: 1.05, lang })
+  }
+  return best
 }
 
 /* Minimal SpeechRecognition typings (not in the standard DOM lib). */
