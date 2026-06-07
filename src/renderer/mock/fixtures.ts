@@ -99,6 +99,10 @@ export interface Session {
   /** Cumulative token count for the session. */
   tokens: number
   messages: ChatMessage[]
+  /** Live terminal/event log for this session (empty until a live turn runs). */
+  terminalLines: TerminalLine[]
+  /** claude CLI session id captured from the init event, used for --resume. */
+  claudeSessionId?: string
 }
 
 /* ───────────────────────────────── Todos ───────────────────────────────────── */
@@ -308,6 +312,19 @@ export function Settings() {
   },
 ]
 
+export const TERMINAL_LINES: TerminalLine[] = [
+  { id: 'tl1', kind: 'command', text: 'claude --resume s1' },
+  { id: 'tl2', kind: 'system', text: 'Resuming session "Dark-mode settings" (Opus 4.8)' },
+  { id: 'tl3', kind: 'stdout', text: '● Read(src/pages/Settings.tsx)' },
+  { id: 'tl4', kind: 'stdout', text: '  ⎿  Read 6 lines' },
+  { id: 'tl5', kind: 'stdout', text: '● Edit(src/pages/Settings.tsx)' },
+  { id: 'tl6', kind: 'stdout', text: '  ⎿  Updated with 14 additions and 2 removals' },
+  { id: 'tl7', kind: 'stdout', text: '● Bash(npm test)' },
+  { id: 'tl8', kind: 'stdout', text: '  ⎿  Tests: 12 passed, 12 total' },
+  { id: 'tl9', kind: 'stderr', text: 'warning: 1 deprecation notice in test runner' },
+  { id: 'tl10', kind: 'system', text: 'Grep("Toggle") running…' },
+]
+
 export const SESSIONS: Session[] = [
   {
     id: 's1',
@@ -318,6 +335,7 @@ export const SESSIONS: Session[] = [
     updatedAt: '2026-06-06T09:14:12Z',
     tokens: 48210,
     messages: chatMessages,
+    terminalLines: TERMINAL_LINES,
   },
   {
     id: 's2',
@@ -335,6 +353,7 @@ export const SESSIONS: Session[] = [
         parts: [{ kind: 'markdown', text: 'Add a token-bucket rate limiter to the gateway.' }],
       },
     ],
+    terminalLines: [],
   },
   {
     id: 's3',
@@ -345,6 +364,7 @@ export const SESSIONS: Session[] = [
     updatedAt: '2026-06-05T22:05:00Z',
     tokens: 9120,
     messages: [],
+    terminalLines: [],
   },
 ]
 
@@ -496,19 +516,6 @@ export const SKILLS: Skill[] = [
     description: 'Create, read, and edit Word documents with rich formatting.',
     category: 'Documents',
   },
-]
-
-export const TERMINAL_LINES: TerminalLine[] = [
-  { id: 'tl1', kind: 'command', text: 'claude --resume s1' },
-  { id: 'tl2', kind: 'system', text: 'Resuming session "Dark-mode settings" (Opus 4.8)' },
-  { id: 'tl3', kind: 'stdout', text: '● Read(src/pages/Settings.tsx)' },
-  { id: 'tl4', kind: 'stdout', text: '  ⎿  Read 6 lines' },
-  { id: 'tl5', kind: 'stdout', text: '● Edit(src/pages/Settings.tsx)' },
-  { id: 'tl6', kind: 'stdout', text: '  ⎿  Updated with 14 additions and 2 removals' },
-  { id: 'tl7', kind: 'stdout', text: '● Bash(npm test)' },
-  { id: 'tl8', kind: 'stdout', text: '  ⎿  Tests: 12 passed, 12 total' },
-  { id: 'tl9', kind: 'stderr', text: 'warning: 1 deprecation notice in test runner' },
-  { id: 'tl10', kind: 'system', text: 'Grep("Toggle") running…' },
 ]
 
 export const STATUS: StatusInfo = {
