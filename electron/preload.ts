@@ -61,6 +61,35 @@ const api = {
       return () => ipcRenderer.removeListener('miku:status', l)
     },
   },
+
+  /** Real claude CLI backend (Slice A). */
+  claude: {
+    available: (): Promise<boolean> => ipcRenderer.invoke('claude:available'),
+    startTurn: (args: {
+      turnId: string
+      prompt: string
+      cwd: string
+      sessionId?: string
+      model?: string
+      permissionMode: 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default'
+    }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('claude:start', args),
+    cancelTurn: (turnId: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('claude:cancel', turnId),
+    onEvent: (cb: (msg: { turnId: string; event: unknown }) => void): (() => void) => {
+      const l = (_e: unknown, msg: { turnId: string; event: unknown }): void => cb(msg)
+      ipcRenderer.on('claude:event', l)
+      return () => ipcRenderer.removeListener('claude:event', l)
+    },
+    onStderr: (cb: (msg: { turnId: string; text: string }) => void): (() => void) => {
+      const l = (_e: unknown, msg: { turnId: string; text: string }): void => cb(msg)
+      ipcRenderer.on('claude:stderr', l)
+      return () => ipcRenderer.removeListener('claude:stderr', l)
+    },
+    onDone: (cb: (msg: { turnId: string; code: number }) => void): (() => void) => {
+      const l = (_e: unknown, msg: { turnId: string; code: number }): void => cb(msg)
+      ipcRenderer.on('claude:done', l)
+      return () => ipcRenderer.removeListener('claude:done', l)
+    },
+  },
 }
 
 contextBridge.exposeInMainWorld('claudedeck', api)

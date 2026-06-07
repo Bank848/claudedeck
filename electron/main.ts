@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, createWriteStream, readdirSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
 import { EdgeTTS } from '@andresaya/edge-tts'
+import { detectClaude, startTurn, cancelTurn, cancelAllTurns } from './claude'
 
 const isDev = !app.isPackaged
 const MIN_SPLASH_MS = 1100
@@ -307,6 +308,17 @@ function registerIpc(): void {
       }
     },
   )
+
+  // ── Real claude CLI backend (Slice A) ──────────────────────────────────────
+  ipcMain.handle('claude:available', async () => (await detectClaude()) !== null)
+  ipcMain.handle('claude:start', (_e, args) => {
+    if (!mainWindow) return { ok: false, error: 'no window' }
+    return startTurn(mainWindow, args)
+  })
+  ipcMain.handle('claude:cancel', (_e, turnId: string) => {
+    cancelTurn(turnId)
+    return { ok: true }
+  })
 }
 
 app.whenReady().then(() => {
@@ -327,9 +339,13 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => stopMiku())
+app.on('before-quit', () => {
+  cancelAllTurns()
+  stopMiku()
+})
 
 app.on('window-all-closed', () => {
+  cancelAllTurns()
   stopMiku()
   if (process.platform !== 'darwin') app.quit()
 })
