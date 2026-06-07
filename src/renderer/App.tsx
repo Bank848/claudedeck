@@ -27,13 +27,27 @@ import SettingsView from '@/views/settings/SettingsView'
 import { ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
 import { useSessions } from '@/state/useSessions'
 import type { ComposerHandle } from '@/views/chat/Composer'
+import * as claudeClient from '@/cli/claudeClient'
+import type { PermissionMode, ClaudeEvent } from '@/cli/types'
 
 export default function App(): JSX.Element {
   const { settings, update } = useSettings()
   const { state: sessionsState, dispatch: sessionsDispatch } = useSessions()
   const sessions = sessionsState.sessions
-  void sessionsDispatch // wired into the live turn dispatcher in Task 12
   const composerRef = useRef<ComposerHandle>(null)
+
+  const [liveMode, setLiveMode] = useState(false)
+  const [claudeOk, setClaudeOk] = useState(false)
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>('plan')
+
+  // Probe for the claude CLI once.
+  useEffect(() => {
+    void claudeClient.claudeAvailable().then(setClaudeOk)
+  }, [])
+
+  // Monotonic id source (reducer stays pure — ids come from here).
+  const idRef = useRef(0)
+  const nextId = (p: string): string => `${p}-${Date.now()}-${idRef.current++}`
   const [activity, setActivity] = useState<ActivityId>('chat')
   const [activeSessionId, setActiveSessionId] = useState<string>(ACTIVE_SESSION_ID)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -269,9 +283,101 @@ export default function App(): JSX.Element {
     }
   }, [useLocalStt, startTalk, stopTalk])
 
+  const speakStatus = (text: string): void => {
+    if (!text) return
+    void speakSmart(text, {
+      rate: settings.speechRate,
+      pitch: settings.speechPitch,
+      voiceURI: settings.voiceURI,
+      lang: voiceCode,
+    })
+  }
+
+  const announceEvent = (event: ClaudeEvent): void => {
+    if (event.type === 'assistant') {
+      const tool = event.message.content.find((c) => c.type === 'tool_use')
+      if (tool && tool.type === 'tool_use') {
+        speakStatus(th ? `กำลังใช้ ${tool.name}` : `Running ${tool.name}`)
+      }
+    } else if (event.type === 'result') {
+      speakStatus(event.is_error ? (th ? 'เกิดข้อผิดพลาด' : 'Error') : (th ? 'เสร็จแล้ว' : 'Done'))
+    }
+  }
+
+  const terminalSummary = (event: ClaudeEvent): string => {
+    switch (event.type) {
+      case 'system': return `● init ${event.session_id ?? ''}`.trim()
+      case 'assistant':
+        return event.message.content
+          .map((c) => (c.type === 'tool_use' ? `● ${c.name}` : c.type === 'text' ? '● (text)' : `● ${c.type}`))
+          .join('  ')
+      case 'user': return '  ⎿ tool result'
+      case 'result': return event.is_error ? '✗ result: error' : '✓ result: done'
+      default: return ''
+    }
+  }
+
   const handleSend = (text: string, modelId: string): void => {
-    // Temporary mock echo — replaced by the live/mock turn dispatcher in Task 12.
-    void text; void modelId
+    const sid = activeSession.id
+    const now = new Date().toISOString()
+    const userMessage = {
+      id: nextId('u'), role: 'user' as const, createdAt: now,
+      parts: [{ kind: 'markdown' as const, text }],
+    }
+
+    const useLive = liveMode && claudeOk
+    const assistantMessage = {
+      id: nextId('a'), role: 'assistant' as const, createdAt: now,
+      parts: useLive ? [] : [{ kind: 'markdown' as const, text: th ? '(โหมดจำลอง — ยังไม่ได้เชื่อมต่อ)' : '(mock mode — not connected)' }],
+      streaming: useLive,
+    }
+    sessionsDispatch({ type: 'startTurn', sessionId: sid, userMessage, assistantMessage })
+
+    if (!useLive) {
+      sessionsDispatch({ type: 'finishTurn', sessionId: sid })
+      return
+    }
+
+    speakStatus(th ? 'กำลังคิด' : 'Thinking')
+
+    const turnId = nextId('turn')
+    const off = claudeClient.subscribe(turnId, {
+      onEvent: (event: ClaudeEvent) => {
+        sessionsDispatch({ type: 'event', sessionId: sid, event })
+        announceEvent(event)
+        sessionsDispatch({
+          type: 'terminal', sessionId: sid,
+          line: { id: nextId('tl'), kind: 'stdout', text: terminalSummary(event) },
+        })
+      },
+      onStderr: (textLine: string) => {
+        sessionsDispatch({
+          type: 'terminal', sessionId: sid,
+          line: { id: nextId('tl'), kind: 'stderr', text: textLine },
+        })
+      },
+      onDone: () => {
+        sessionsDispatch({ type: 'finishTurn', sessionId: sid })
+        off()
+      },
+    })
+
+    void claudeClient
+      .startTurn({
+        turnId, prompt: text, cwd: activeSession.cwd,
+        sessionId: activeSession.claudeSessionId, model: modelId, permissionMode,
+      })
+      .then((r) => {
+        if (!r.ok) {
+          sessionsDispatch({
+            type: 'terminal', sessionId: sid,
+            line: { id: nextId('tl'), kind: 'stderr', text: r.error ?? 'failed to start claude' },
+          })
+          sessionsDispatch({ type: 'finishTurn', sessionId: sid })
+          speakStatus(th ? 'เกิดข้อผิดพลาด' : 'Error')
+          off()
+        }
+      })
   }
 
   const centerView = (() => {
@@ -375,7 +481,14 @@ export default function App(): JSX.Element {
         </PanelGroup>
       </div>
 
-      <StatusBar session={activeSession} />
+      <StatusBar
+        session={activeSession}
+        live={liveMode}
+        claudeAvailable={claudeOk}
+        permissionMode={permissionMode}
+        onToggleLive={() => setLiveMode((v) => !v)}
+        onChangePermission={setPermissionMode}
+      />
     </div>
   )
 }
