@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { cancelSpeech } from './speech'
 import { setTtsConfig } from './tts'
+import type { EffortLevel } from './effort'
+import { DEFAULT_EFFORT } from './effort'
 
 export type UiScale = 'small' | 'normal' | 'large'
 
@@ -49,6 +51,8 @@ export interface Settings {
   highContrast: boolean
   /** Interface zoom. */
   uiScale: UiScale
+  /** Reasoning-effort UI preference. Cosmetic — does NOT change CLI behavior. */
+  effort: EffortLevel
 }
 
 const DEFAULTS: Settings = {
@@ -74,6 +78,7 @@ const DEFAULTS: Settings = {
   reduceMotion: false,
   highContrast: false,
   uiScale: 'normal',
+  effort: DEFAULT_EFFORT,
 }
 
 const STORAGE_KEY = 'claudedeck.settings'
