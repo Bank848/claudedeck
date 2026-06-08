@@ -368,7 +368,11 @@ export default function App(): JSX.Element {
       return
     }
 
-    speakStatus(th ? 'กำลังคิด' : 'Thinking')
+    // Show "thinking" visually + via aria-live, but do NOT speak it: the result
+    // event's spoken "Done" would otherwise cancel this mid-word (speakSmart does
+    // not queue, system speak() cancels-then-speaks) → "กำลังค—เสร็จแล้ว". Proper
+    // queueing/auto-read is Slice C; this is the band-aid for the cut-off.
+    setLiveStatus(th ? 'กำลังคิด' : 'Thinking')
 
     const turnId = nextId('turn')
     const off = claudeClient.subscribe(turnId, {
