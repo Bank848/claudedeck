@@ -1,16 +1,13 @@
 import { CheckCircle2, Circle, Loader2 } from 'lucide-react'
 import type { Session, Todo } from '@/mock/fixtures'
-import { TODOS } from '@/mock/fixtures'
 import { deriveTodos } from '@/cli/deriveSessionState'
 
 interface TodoPanelProps {
   session: Session
-  /** Live mode → derive from real tool calls; Mock mode → showcase fixtures. */
-  live?: boolean
 }
 
-export default function TodoPanel({ session, live = false }: TodoPanelProps): JSX.Element {
-  const todos: Todo[] = live ? deriveTodos(session.messages) : TODOS
+export default function TodoPanel({ session }: TodoPanelProps): JSX.Element {
+  const todos: Todo[] = deriveTodos(session.messages)
   const completed = todos.filter((t) => t.status === 'completed').length
   const total = todos.length
 

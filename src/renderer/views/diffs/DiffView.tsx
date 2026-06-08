@@ -1,15 +1,13 @@
 import { useState } from 'react'
-import { FILE_CHANGES } from '@/mock/fixtures'
 import type { Session, FileChange, DiffLine } from '@/mock/fixtures'
 import { deriveChanges } from '@/cli/deriveSessionState'
 
 interface DiffViewProps {
   session: Session
-  live?: boolean
 }
 
-export default function DiffView({ session, live = false }: DiffViewProps): JSX.Element {
-  const files: FileChange[] = live ? deriveChanges(session.messages) : FILE_CHANGES
+export default function DiffView({ session }: DiffViewProps): JSX.Element {
+  const files: FileChange[] = deriveChanges(session.messages)
   const [selectedFileId, setSelectedFileId] = useState<string>(
     files.length > 0 ? files[0].id : ''
   )

@@ -20,8 +20,12 @@ function stateWithSession(id: string): SessionsState {
 }
 
 describe('sessionsReducer', () => {
-  it('seeds from the SESSIONS fixture', () => {
-    expect(initialSessionsState().sessions.length).toBeGreaterThan(0)
+  it('seeds one empty idle session ready to type into', () => {
+    const { sessions } = initialSessionsState()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].status).toBe('idle')
+    expect(sessions[0].messages).toHaveLength(0)
+    expect(sessions[0].terminalLines).toHaveLength(0)
   })
 
   it('startTurn appends the user + empty assistant message', () => {
@@ -66,10 +70,11 @@ describe('sessionsReducer', () => {
   })
 
   it('setCwd updates only the target session cwd', () => {
-    const s0 = initialSessionsState()
-    const id = s0.sessions[0].id
+    const s0: SessionsState = {
+      sessions: [stateWithSession('a').sessions[0], stateWithSession('b').sessions[0]],
+    }
     const otherCwd = s0.sessions[1].cwd
-    const s1 = sessionsReducer(s0, { type: 'setCwd', sessionId: id, cwd: 'D:/new/path' })
+    const s1 = sessionsReducer(s0, { type: 'setCwd', sessionId: 'a', cwd: 'D:/new/path' })
     expect(s1.sessions[0].cwd).toBe('D:/new/path')
     expect(s1.sessions[1].cwd).toBe(otherCwd)
   })

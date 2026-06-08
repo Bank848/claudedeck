@@ -1,5 +1,4 @@
 import type { ChatMessage, Session, TerminalLine } from '@/mock/fixtures'
-import { SESSIONS } from '@/mock/fixtures'
 import { foldEvent } from '@/cli/streamMapper'
 import type { ClaudeEvent } from '@/cli/types'
 
@@ -16,9 +15,28 @@ export type SessionsAction =
   | { type: 'finishTurn'; sessionId: string }
   | { type: 'setCwd'; sessionId: string; cwd: string }
 
+/**
+ * A blank, ready-to-type session. The app boots into one of these — no mock
+ * showcase data — so the composer is enabled (status 'idle', not 'running') and
+ * the chat/todo/diff panels start from a clean empty state instead of demo
+ * fixtures. cwd '' lets the main process fall back to its real working dir.
+ */
+export function emptySession(id: string): Session {
+  return {
+    id,
+    title: 'New session',
+    cwd: '',
+    status: 'idle',
+    model: 'opus-4-8',
+    updatedAt: new Date().toISOString(),
+    tokens: 0,
+    messages: [],
+    terminalLines: [],
+  }
+}
+
 export function initialSessionsState(): SessionsState {
-  // Deep-ish clone so the reducer never mutates the shared fixture import.
-  return { sessions: SESSIONS.map((s) => ({ ...s, messages: [...s.messages], terminalLines: [...s.terminalLines] })) }
+  return { sessions: [emptySession('main')] }
 }
 
 function patchSession(state: SessionsState, id: string, fn: (s: Session) => Session): SessionsState {
