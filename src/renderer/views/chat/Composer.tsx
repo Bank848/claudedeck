@@ -16,6 +16,8 @@ interface ComposerProps {
   model: string
   /** Called with the message text + selected model id when the user sends. */
   onSend: (text: string, modelId: string) => void
+  /** True while this session's turn is streaming — blocks a second send (B4). */
+  busy?: boolean
 }
 
 function seedModelId(label: string): string {
@@ -24,7 +26,7 @@ function seedModelId(label: string): string {
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { model, onSend },
+  { model, onSend, busy = false },
   ref,
 ): JSX.Element {
   const { settings } = useSettings()
@@ -45,6 +47,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }, resolveLang(settings.voiceLang).code)
 
   const submit = (): void => {
+    if (busy) return // B4: turn in flight — ignore Enter / button / voice "ส่ง"
     const text = value.trim()
     if (!text) return
     onSend(text, modelId)
@@ -61,7 +64,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }
 
-  const canSend = value.trim().length > 0
+  const canSend = !busy && value.trim().length > 0
   const showMic = settings.speechToText && dictation.supported
 
   return (
@@ -77,7 +80,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               resize()
             }}
             onKeyDown={handleKeyDown}
-            placeholder={dictation.listening ? 'Listening…' : 'Message Claude…'}
+            placeholder={busy ? 'Working…' : dictation.listening ? 'Listening…' : 'Message Claude…'}
             rows={1}
             className="min-h-[44px] max-h-[200px] w-full resize-none bg-transparent px-4 py-3 text-sm text-fg placeholder:text-fg-muted focus:outline-none leading-relaxed"
             style={{ height: '44px' }}
@@ -116,8 +119,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 type="button"
                 onClick={submit}
                 disabled={!canSend}
-                title="Send message"
-                aria-label="Send message"
+                title={busy ? 'Working…' : 'Send message'}
+                aria-label={busy ? 'Working, please wait' : 'Send message'}
                 className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                   canSend
                     ? 'bg-accent hover:bg-accent-hover text-white cursor-pointer'

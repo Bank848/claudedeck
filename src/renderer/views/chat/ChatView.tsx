@@ -44,7 +44,7 @@ export default function ChatView({
       </div>
 
       {/* Sticky composer */}
-      <Composer ref={composerRef} model={session.model} onSend={onSend} />
+      <Composer ref={composerRef} model={session.model} onSend={onSend} busy={session.status === 'running'} />
     </div>
   )
 }

@@ -326,6 +326,12 @@ export default function App(): JSX.Element {
 
   const handleSend = (text: string, modelId: string): void => {
     const sid = activeSession.id
+    // B4: ignore a second send while this session's turn is still streaming —
+    // otherwise its events would fold into the wrong (newer) assistant message.
+    if (activeSession.status === 'running') {
+      speakStatus(th ? 'กำลังทำงานอยู่ รอสักครู่' : 'Still working, please wait')
+      return
+    }
     const now = new Date().toISOString()
     const userMessage = {
       id: nextId('u'), role: 'user' as const, createdAt: now,

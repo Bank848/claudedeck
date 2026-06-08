@@ -47,10 +47,10 @@ describe('buildArgs', () => {
 
   it('includes the core stream-json flags and permission mode', () => {
     const args = buildArgs(base)
-    expect(args.slice(0, 6)).toEqual([
-      '-p', 'list two colors', '--output-format', 'stream-json', '--verbose', '--permission-mode',
+    expect(args.slice(0, 5)).toEqual([
+      '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode',
     ])
-    expect(args[6]).toBe('plan')
+    expect(args[5]).toBe('plan')
   })
 
   it('adds --resume only when a sessionId is present', () => {
@@ -61,9 +61,13 @@ describe('buildArgs', () => {
     expect(resumed[i + 1]).toBe('sess-9')
   })
 
-  it('passes the prompt as a discrete argv element (no shell concat)', () => {
-    const args = buildArgs({ ...base, prompt: 'a & b "quoted"' })
-    expect(args).toContain('a & b "quoted"')
+  it('never puts the prompt in argv — it goes over stdin (B3 regression)', () => {
+    // A prompt full of cmd.exe metacharacters must not appear anywhere in argv,
+    // so cmd can never parse it. The prompt reaches claude via stdin instead.
+    const nasty = 'list a & calc | echo "x" > y'
+    const args = buildArgs({ ...base, prompt: nasty })
+    expect(args).not.toContain(nasty)
+    expect(args.some((t) => t.includes('calc') || t.includes('&'))).toBe(false)
   })
 })
 

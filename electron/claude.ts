@@ -66,10 +66,17 @@ export function pickCwd(
   return requested && exists(requested) ? requested : fallback
 }
 
+/**
+ * The prompt is intentionally NOT here — it is fed over stdin (see startTurn) so
+ * no user text ever reaches the command line. `claude -p` with the default
+ * `--input-format text` reads the prompt from stdin. This makes Windows cmd.exe
+ * metacharacter injection (`&`, `|`, `"`, …) impossible: every argv token below
+ * is a fixed flag or a validated/enumerated value.
+ */
 export function buildArgs(a: StartTurnArgs): string[] {
   const model = toCliModel(a.model)
   return [
-    '-p', a.prompt,
+    '-p',
     '--output-format', 'stream-json',
     '--verbose',
     '--permission-mode', a.permissionMode,
@@ -79,9 +86,9 @@ export function buildArgs(a: StartTurnArgs): string[] {
 }
 
 /**
- * Spawn one turn. The prompt is passed as a discrete argv element (never string-
- * concatenated), so there is no shell injection even though .cmd on Windows is
- * launched via `cmd.exe /c` (Node quotes each argument).
+ * Spawn one turn. The prompt is written to the child's stdin (not argv), so even
+ * though the .cmd shim is launched via `cmd.exe /c` on Windows, no user text is
+ * ever parsed by cmd — shell-metacharacter injection is structurally impossible.
  */
 export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{ ok: boolean; error?: string }> {
   const bin = await detectClaude()
@@ -101,6 +108,11 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
     : spawn(bin, args, { cwd })
 
   turns.set(a.turnId, proc)
+
+  // Feed the prompt over stdin (utf-8, so Thai survives) and close the stream so
+  // claude -p stops waiting for more input and runs the turn.
+  proc.stdin?.write(a.prompt, 'utf8')
+  proc.stdin?.end()
 
   let buf = ''
   proc.stdout?.on('data', (d) => {
