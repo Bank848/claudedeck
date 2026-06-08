@@ -1,4 +1,4 @@
-# ClaudeDeck — Guide / Reference Page — Implementation Plan (DRAFT)
+# ClaudeDeck — Guide / Reference Page — Implementation Plan
 
 **Goal:** Add an in-app static "wiki / cheatsheet" page (Activity `'guide'`) that documents
 the `claude` CLI commands, login/auth, slash commands, and ClaudeDeck shortcuts. Curated data
@@ -14,6 +14,20 @@ with a search box and a `<nav>` jump list. New `'guide'` Activity wired into `Ac
 `text-accent`, `border-border/border-strong`), lucide-react (`BookOpen`), Vitest.
 
 **Gate (before commit):** `npm run typecheck` && `npm run test` && `npm run build` all green.
+
+**Spawned review:** APPROVE WITH FIXES (applied below).
+
+---
+
+## Spawned review — what it changed
+
+- Removed the meaningless `'use client'` directive from `GuideView` (Next.js-ism, no-op in Vite).
+- Confirmed no hidden breakage: `Sidebar.TITLES` is the *only* exhaustive `ActivityId` consumer;
+  `App.centerView` has a `default` so it won't error.
+- Confirmed all token classes real (incl. `text-accent-hover` → `--accent-hover`), no duplicate
+  React keys, and every `filterGuide` test assertion traces green (esp. the title-only branch via
+  `ClaudeDeck`).
+- Kept `focus-visible:ring-2` rings — spec §5 requires them (reviewer's de-dup was cosmetic).
 
 ---
 
