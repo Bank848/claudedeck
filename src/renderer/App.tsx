@@ -22,6 +22,7 @@ import KanbanBoard from '@/views/tasks/KanbanBoard'
 import DiffView from '@/views/diffs/DiffView'
 import SkillsBrowser from '@/views/skills/SkillsBrowser'
 import UsageView from '@/views/usage/UsageView'
+import GuideView from '@/views/guide/GuideView'
 import SettingsView from '@/views/settings/SettingsView'
 
 import { ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
@@ -125,6 +126,7 @@ export default function App(): JSX.Element {
     { phrases: ['changes', 'diff', 'source control', 'การเปลี่ยนแปลง', 'ดิฟ'], run: go('changes'), confirm: th ? 'การเปลี่ยนแปลง' : 'Changes', label: '“changes” / “ดิฟ”' },
     { phrases: ['skills', 'สกิล', 'ทักษะ'], run: go('skills'), confirm: th ? 'สกิล' : 'Skills', label: '“skills” / “สกิล”' },
     { phrases: ['usage', 'tokens', 'limit', 'การใช้งาน', 'โทเคน', 'ลิมิต'], run: go('usage'), confirm: th ? 'การใช้งาน' : 'Usage', label: '“usage” / “การใช้งาน”' },
+    { phrases: ['guide', 'reference', 'manual', 'help page', 'คู่มือ', 'อ้างอิง', 'วิธีใช้'], run: go('guide'), confirm: th ? 'คู่มือ' : 'Guide', label: '“guide” / “คู่มือ”' },
     { phrases: ['settings', 'preferences', 'ตั้งค่า'], run: go('settings'), confirm: th ? 'ตั้งค่า' : 'Settings', label: '“settings” / “ตั้งค่า”' },
     { phrases: ['next tab', 'next session', 'แท็บถัดไป', 'ถัดไป'], run: () => cycleSession(1), confirm: th ? 'แท็บถัดไป' : 'Next tab', label: '“next tab” / “แท็บถัดไป”' },
     { phrases: ['previous tab', 'last tab', 'back tab', 'แท็บก่อนหน้า', 'ก่อนหน้า', 'ย้อนกลับ'], run: () => cycleSession(-1), confirm: th ? 'แท็บก่อนหน้า' : 'Previous tab', label: '“previous tab” / “แท็บก่อนหน้า”' },
@@ -421,6 +423,8 @@ export default function App(): JSX.Element {
         return <SkillsBrowser />
       case 'usage':
         return <UsageView />
+      case 'guide':
+        return <GuideView />
       case 'settings':
         return <SettingsView />
       case 'chat':

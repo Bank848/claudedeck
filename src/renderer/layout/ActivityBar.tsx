@@ -5,6 +5,7 @@ import {
   GitCompare,
   Sparkles,
   Gauge,
+  BookOpen,
   Settings,
   type LucideIcon,
 } from 'lucide-react'
@@ -23,6 +24,7 @@ const TOP_ITEMS: ActivityItem[] = [
   { id: 'changes', label: 'Changes', icon: GitCompare },
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'usage', label: 'Usage', icon: Gauge },
+  { id: 'guide', label: 'Guide', icon: BookOpen },
 ]
 
 const BOTTOM_ITEMS: ActivityItem[] = [{ id: 'settings', label: 'Settings', icon: Settings }]

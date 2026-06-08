@@ -15,6 +15,7 @@ export type ActivityId =
   | 'changes'
   | 'skills'
   | 'usage'
+  | 'guide'
   | 'settings'
 
 /* ──────────────────────────── Providers / models ───────────────────────────── */

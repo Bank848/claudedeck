@@ -15,6 +15,7 @@ const TITLES: Record<ActivityId, string> = {
   changes: 'Source Control',
   skills: 'Skill Categories',
   usage: 'Usage',
+  guide: 'Guide',
   settings: 'Settings',
 }
 
