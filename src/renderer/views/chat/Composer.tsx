@@ -1,14 +1,21 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
-import { ArrowUp, Slash, Mic } from 'lucide-react'
+import { ArrowUp, Mic } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
+import { ModePicker } from '@/components/controls/ModePicker'
+import { EffortPicker } from '@/components/controls/EffortPicker'
+import { UsagePill } from '@/components/controls/UsagePill'
+import { PlusMenu } from '@/components/controls/PlusMenu'
 import { useSettings } from '@/settings/SettingsContext'
 import { useDictation } from '@/settings/speechRecognition'
 import { resolveLang } from '@/settings/speech'
 import { MODELS } from '@/mock/fixtures'
+import type { PermissionMode } from '@/cli/types'
 
 export interface ComposerHandle {
   /** Submit the current text programmatically (used by the "ส่ง" voice command). */
   submit: () => void
+  /** Set the model by id (used by the "โมเดล …" voice command). */
+  setModel: (id: string) => void
 }
 
 interface ComposerProps {
@@ -18,6 +25,13 @@ interface ComposerProps {
   onSend: (text: string, modelId: string) => void
   /** True while this session's turn is streaming — blocks a second send (B4). */
   busy?: boolean
+  /** Active session token count (for the usage ring). */
+  tokens: number
+  /** Permission mode (lifted from App, still read by App.handleSend). */
+  permissionMode: PermissionMode
+  onChangePermission: (mode: PermissionMode) => void
+  /** Retarget the active session cwd (Add folder). */
+  onSetCwd: (path: string) => void
 }
 
 function seedModelId(label: string): string {
@@ -26,10 +40,10 @@ function seedModelId(label: string): string {
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { model, onSend, busy = false },
+  { model, onSend, busy = false, tokens, permissionMode, onChangePermission, onSetCwd },
   ref,
 ): JSX.Element {
-  const { settings } = useSettings()
+  const { settings, update } = useSettings()
   const [value, setValue] = useState('')
   const [modelId, setModelId] = useState(() => seedModelId(model))
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -55,7 +69,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     requestAnimationFrame(resize)
   }
 
-  useImperativeHandle(ref, () => ({ submit }))
+  const insertSlash = (): void => {
+    setValue((v) => (v.startsWith('/') ? v : `/${v}`))
+    textareaRef.current?.focus()
+    requestAnimationFrame(resize)
+  }
+
+  useImperativeHandle(ref, () => ({ submit, setModel: setModelId }))
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -86,19 +106,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             style={{ height: '44px' }}
           />
 
-          {/* Bottom bar */}
+          {/* Control bar */}
           <div className="flex items-center justify-between px-3 pb-2 pt-1">
-            {/* Left: slash hint + model picker */}
+            {/* Left: plus, mic, mode */}
             <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-fg-muted border border-border hover:bg-surface-2 transition-colors cursor-pointer">
-                <Slash size={11} />
-                <span>Skills</span>
-              </span>
-              <ModelPicker value={modelId} onChange={setModelId} />
-            </div>
-
-            {/* Right: mic + send */}
-            <div className="flex items-center gap-1.5">
+              <PlusMenu onSlash={insertSlash} onPickFolder={onSetCwd} />
               {showMic && (
                 <button
                   type="button"
@@ -115,6 +127,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   <Mic size={15} />
                 </button>
               )}
+              <ModePicker value={permissionMode} onChange={onChangePermission} />
+            </div>
+
+            {/* Right: model, effort, usage, send */}
+            <div className="flex items-center gap-2">
+              <ModelPicker value={modelId} onChange={setModelId} />
+              <EffortPicker value={settings.effort} onChange={(level) => update('effort', level)} />
+              <UsagePill tokens={tokens} />
               <button
                 type="button"
                 onClick={submit}

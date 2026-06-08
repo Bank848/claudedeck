@@ -25,6 +25,8 @@ import UsageView from '@/views/usage/UsageView'
 import SettingsView from '@/views/settings/SettingsView'
 
 import { ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
+import { MODE_OPTIONS } from '@/settings/permissionModes'
+import { EFFORT_OPTIONS } from '@/settings/effort'
 import { useSessions } from '@/state/useSessions'
 import type { ComposerHandle } from '@/views/chat/Composer'
 import * as claudeClient from '@/cli/claudeClient'
@@ -134,9 +136,25 @@ export default function App(): JSX.Element {
     { phrases: ['send', 'send message', 'submit', 'ส่ง', 'ส่งข้อความ', 'ส่งเลย', 'ส่งให้หน่อย'], run: () => composerRef.current?.submit(), confirm: th ? 'ส่งแล้ว' : 'Sent', label: '“send” / “ส่ง”' },
     { phrases: ['live mode', 'go live', 'connect', 'โหมดสด', 'เชื่อมต่อ', 'ใช้งานจริง'], run: () => { if (claudeOk) setLiveMode(true) }, confirm: th ? 'โหมดสด' : 'Live mode', label: '“live” / “โหมดสด”' },
     { phrases: ['mock mode', 'offline mode', 'โหมดจำลอง', 'โหมดทดสอบ'], run: () => setLiveMode(false), confirm: th ? 'โหมดจำลอง' : 'Mock mode', label: '“mock” / “โหมดจำลอง”' },
-    { phrases: ['plan mode', 'read only', 'โหมดวางแผน', 'อ่านอย่างเดียว'], run: () => setPermissionMode('plan'), confirm: th ? 'โหมดวางแผน' : 'Plan mode', label: '“plan mode” / “โหมดวางแผน”' },
-    { phrases: ['accept edits', 'allow edits', 'ยอมรับการแก้ไข', 'อนุญาตแก้ไข'], run: () => setPermissionMode('acceptEdits'), confirm: th ? 'ยอมรับการแก้ไข' : 'Accept edits', label: '“accept edits” / “ยอมรับการแก้ไข”' },
     { phrases: ['quiet', 'silence', 'be quiet', 'เงียบ', 'เงียบ ๆ'], run: stopSpeaking, confirm: '', label: '“quiet” / “เงียบ”' },
+    // Permission modes (all four CLI modes, TH+EN).
+    ...MODE_OPTIONS.map<VoiceCommand>((o) => ({
+      phrases: o.phrases,
+      run: () => setPermissionMode(o.mode),
+      confirm: th ? `โหมด ${o.label}` : o.label,
+      label: `“${o.label}”`,
+    })),
+    // Effort (cosmetic) — speaks confirmation, updates the persisted setting.
+    ...EFFORT_OPTIONS.map<VoiceCommand>((o) => ({
+      phrases: o.phrases,
+      run: () => update('effort', o.level),
+      confirm: th ? `เอฟฟอร์ต ${o.label}` : `Effort ${o.label}`,
+      label: `“effort ${o.label}”`,
+    })),
+    // Model by spoken name → drives the Composer's local selection.
+    { phrases: ['model opus', 'opus', 'โมเดลโอปุส', 'โอปุส'], run: () => composerRef.current?.setModel('opus-4-8'), confirm: th ? 'โมเดลโอปุส' : 'Opus', label: '“opus” / “โอปุส”' },
+    { phrases: ['model sonnet', 'sonnet', 'โมเดลซอนเน็ต', 'ซอนเน็ต'], run: () => composerRef.current?.setModel('sonnet-4-6'), confirm: th ? 'โมเดลซอนเน็ต' : 'Sonnet', label: '“sonnet” / “ซอนเน็ต”' },
+    { phrases: ['model haiku', 'haiku', 'โมเดลไฮกุ', 'ไฮกุ'], run: () => composerRef.current?.setModel('haiku-4-5'), confirm: th ? 'โมเดลไฮกุ' : 'Haiku', label: '“haiku” / “ไฮกุ”' },
   ]
 
   // ── Listening state machine: active ⇄ paused, or off ───────────────────────
@@ -416,7 +434,16 @@ export default function App(): JSX.Element {
       case 'chat':
       case 'sessions':
       default:
-        return <ChatView session={activeSession} onSend={handleSend} composerRef={composerRef} />
+        return (
+          <ChatView
+            session={activeSession}
+            onSend={handleSend}
+            composerRef={composerRef}
+            permissionMode={permissionMode}
+            onChangePermission={setPermissionMode}
+            onSetCwd={(path) => sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
+          />
+        )
     }
   })()
 
@@ -509,7 +536,6 @@ export default function App(): JSX.Element {
         claudeAvailable={claudeOk}
         permissionMode={permissionMode}
         onToggleLive={() => setLiveMode((v) => !v)}
-        onChangePermission={setPermissionMode}
       />
     </div>
   )

@@ -8,7 +8,6 @@ interface StatusBarProps {
   claudeAvailable: boolean
   permissionMode: PermissionMode
   onToggleLive: () => void
-  onChangePermission: (mode: PermissionMode) => void
 }
 
 const PERMISSION_LABELS: Record<PermissionMode, string> = {
@@ -19,7 +18,7 @@ const PERMISSION_LABELS: Record<PermissionMode, string> = {
 }
 
 export function StatusBar({
-  session, live, claudeAvailable, permissionMode, onToggleLive, onChangePermission,
+  session, live, claudeAvailable, permissionMode, onToggleLive,
 }: StatusBarProps): JSX.Element {
   const connected = session.status !== 'error'
   return (
@@ -54,20 +53,10 @@ export function StatusBar({
           {live ? '● Live' : '○ Mock'}
         </button>
 
-        {/* Permission mode */}
-        <label className="flex items-center gap-1.5">
-          <span className="sr-only">Permission mode</span>
-          <select
-            value={permissionMode}
-            onChange={(e) => onChangePermission(e.target.value as PermissionMode)}
-            aria-label="claude permission mode"
-            className="rounded border border-border bg-bg px-1.5 py-0.5 text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            {(Object.keys(PERMISSION_LABELS) as PermissionMode[]).map((m) => (
-              <option key={m} value={m}>{PERMISSION_LABELS[m]}</option>
-            ))}
-          </select>
-        </label>
+        {/* Permission mode (read-only mirror; change it in the composer) */}
+        <span className="flex items-center gap-1.5" title="Permission mode — change it in the composer">
+          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-fg-muted">{PERMISSION_LABELS[permissionMode]}</span>
+        </span>
 
         <span className="flex items-center gap-1.5">
           <FolderOpen size={12} />

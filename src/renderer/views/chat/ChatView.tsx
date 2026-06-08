@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Sparkles } from 'lucide-react'
 import type { Session } from '@/mock/fixtures'
+import type { PermissionMode } from '@/cli/types'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
 import { Composer, type ComposerHandle } from './Composer'
@@ -9,10 +10,16 @@ export default function ChatView({
   session,
   onSend,
   composerRef,
+  permissionMode,
+  onChangePermission,
+  onSetCwd,
 }: {
   session: Session
   onSend: (text: string, modelId: string) => void
   composerRef?: React.Ref<ComposerHandle>
+  permissionMode: PermissionMode
+  onChangePermission: (mode: PermissionMode) => void
+  onSetCwd: (path: string) => void
 }): JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -44,7 +51,16 @@ export default function ChatView({
       </div>
 
       {/* Sticky composer */}
-      <Composer ref={composerRef} model={session.model} onSend={onSend} busy={session.status === 'running'} />
+      <Composer
+        ref={composerRef}
+        model={session.model}
+        onSend={onSend}
+        busy={session.status === 'running'}
+        tokens={session.tokens}
+        permissionMode={permissionMode}
+        onChangePermission={onChangePermission}
+        onSetCwd={onSetCwd}
+      />
     </div>
   )
 }
