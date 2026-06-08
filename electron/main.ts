@@ -6,6 +6,7 @@ import { get as httpsGet } from 'node:https'
 import { EdgeTTS } from '@andresaya/edge-tts'
 import { detectClaude, startTurn, cancelTurn, cancelAllTurns } from './claude'
 import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from './auth'
+import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd } from './git'
 
 const isDev = !app.isPackaged
 const MIN_SPLASH_MS = 1100
@@ -347,6 +348,19 @@ function registerIpc(): void {
     return { ok: true }
   })
   ipcMain.handle('auth:logout', () => logout())
+
+  // ── git (footer pickers) ──────────────────────────────────────────────────
+  ipcMain.handle('git:status', (_e, cwd: string) => gitStatus(cwd))
+  ipcMain.handle('git:branches', (_e, cwd: string) => gitBranches(cwd))
+  ipcMain.handle('git:checkout', (_e, args: { cwd: string; branch: string }) =>
+    gitCheckout(args.cwd, args.branch),
+  )
+  ipcMain.handle('git:worktrees', (_e, cwd: string) => gitWorktrees(cwd))
+  ipcMain.handle(
+    'git:worktree-add',
+    (_e, args: { cwd: string; path: string; branch: string; newBranch?: boolean }) =>
+      gitWorktreeAdd(args.cwd, args.path, args.branch, args.newBranch),
+  )
 }
 
 app.whenReady().then(() => {

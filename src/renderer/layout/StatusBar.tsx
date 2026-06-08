@@ -1,6 +1,7 @@
-import { GitBranch, Cpu, Coins, FolderOpen, Dot } from 'lucide-react'
+import { Cpu, Coins, Dot } from 'lucide-react'
 import type { Session } from '@/mock/fixtures'
 import type { PermissionMode } from '@/cli/types'
+import { FooterPickers } from './FooterPickers'
 
 interface StatusBarProps {
   session: Session
@@ -9,6 +10,8 @@ interface StatusBarProps {
   permissionMode: PermissionMode
   onConnect: () => void
   onDisconnect: () => void
+  onSetCwd: (path: string) => void
+  onAnnounce: (msg: string) => void
 }
 
 const PERMISSION_LABELS: Record<PermissionMode, string> = {
@@ -19,7 +22,7 @@ const PERMISSION_LABELS: Record<PermissionMode, string> = {
 }
 
 export function StatusBar({
-  session, loggedIn, cliAvailable, permissionMode, onConnect, onDisconnect,
+  session, loggedIn, cliAvailable, permissionMode, onConnect, onDisconnect, onSetCwd, onAnnounce,
 }: StatusBarProps): JSX.Element {
   const ready = session.status !== 'error'
   return (
@@ -27,15 +30,12 @@ export function StatusBar({
       className="flex shrink-0 items-center justify-between border-t border-border bg-surface px-3 text-xs text-fg-muted"
       style={{ height: 'var(--statusbar-h)' }}
     >
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <span className="flex items-center gap-1">
           <Dot size={18} className={ready ? 'text-success' : 'text-destructive'} strokeWidth={6} />
           {ready ? 'Ready' : 'Error'}
         </span>
-        <span className="flex items-center gap-1.5">
-          <GitBranch size={12} />
-          {session.cwd.split('/').pop()}
-        </span>
+        <FooterPickers cwd={session.cwd} onSetCwd={onSetCwd} onAnnounce={onAnnounce} />
       </div>
 
       <div className="flex items-center gap-3">
@@ -58,10 +58,6 @@ export function StatusBar({
           <span className="rounded bg-surface-2 px-1.5 py-0.5 text-fg-muted">{PERMISSION_LABELS[permissionMode]}</span>
         </span>
 
-        <span className="flex items-center gap-1.5">
-          <FolderOpen size={12} />
-          {session.cwd}
-        </span>
         <span className="flex items-center gap-1.5">
           <Cpu size={12} />
           {session.model}

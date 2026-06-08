@@ -540,6 +540,8 @@ export default function App(): JSX.Element {
         permissionMode={permissionMode}
         onConnect={() => void auth.login()}
         onDisconnect={() => void auth.logout()}
+        onSetCwd={(path) => sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
+        onAnnounce={setLiveStatus}
       />
     </div>
   )

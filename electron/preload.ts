@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AuthStatus } from './auth'
+import type { GitStatus, Worktree, GitResult } from './git'
 
 /**
  * Minimal, Phase-1 surface: window controls + maximize-state subscription.
@@ -116,6 +117,19 @@ const api = {
       ipcRenderer.on('auth:login-done', l)
       return () => ipcRenderer.removeListener('auth:login-done', l)
     },
+  },
+
+  /** Git footer pickers — runs in the active session cwd. */
+  git: {
+    status: (cwd: string): Promise<GitStatus> => ipcRenderer.invoke('git:status', cwd),
+    branches: (cwd: string): Promise<string[]> => ipcRenderer.invoke('git:branches', cwd),
+    checkout: (cwd: string, branch: string): Promise<GitResult> =>
+      ipcRenderer.invoke('git:checkout', { cwd, branch }),
+    worktrees: (cwd: string): Promise<Worktree[]> => ipcRenderer.invoke('git:worktrees', cwd),
+    worktreeAdd: (
+      args: { cwd: string; path: string; branch: string; newBranch?: boolean },
+    ): Promise<{ ok: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('git:worktree-add', args),
   },
 }
 
