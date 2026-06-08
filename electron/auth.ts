@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { shell, type BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron'
 import { detectClaude } from './claude'
 
 export interface AuthStatus {
@@ -80,9 +80,12 @@ export async function startLogin(win: BrowserWindow): Promise<{ ok: boolean; err
       if (!urlSent) {
         const url = extractAuthUrl(line)
         if (url) {
+          // The CLI opens the browser itself ("Opening browser to sign in…"),
+          // so we must NOT open it again — otherwise the user gets two OAuth
+          // tabs. We only capture the URL to advance the UI phase (and as a
+          // fallback the renderer can surface it).
           urlSent = true
           win.webContents.send('auth:login-url', { url })
-          void shell.openExternal(url)
         }
       }
     }
