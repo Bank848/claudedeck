@@ -14,6 +14,7 @@ export type SessionsAction =
   | { type: 'event'; sessionId: string; event: ClaudeEvent }
   | { type: 'terminal'; sessionId: string; line: TerminalLine }
   | { type: 'finishTurn'; sessionId: string }
+  | { type: 'setCwd'; sessionId: string; cwd: string }
 
 export function initialSessionsState(): SessionsState {
   // Deep-ish clone so the reducer never mutates the shared fixture import.
@@ -55,6 +56,9 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
         status: 'idle',
         messages: s.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
       }))
+
+    case 'setCwd':
+      return patchSession(state, action.sessionId, (s) => ({ ...s, cwd: action.cwd }))
 
     default:
       return state

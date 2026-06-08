@@ -64,4 +64,13 @@ describe('sessionsReducer', () => {
     s = sessionsReducer(s, { type: 'finishTurn', sessionId: 'x' })
     expect(s.sessions[0].messages[1].streaming).toBe(false)
   })
+
+  it('setCwd updates only the target session cwd', () => {
+    const s0 = initialSessionsState()
+    const id = s0.sessions[0].id
+    const otherCwd = s0.sessions[1].cwd
+    const s1 = sessionsReducer(s0, { type: 'setCwd', sessionId: id, cwd: 'D:/new/path' })
+    expect(s1.sessions[0].cwd).toBe('D:/new/path')
+    expect(s1.sessions[1].cwd).toBe(otherCwd)
+  })
 })
