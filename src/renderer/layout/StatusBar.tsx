@@ -4,10 +4,11 @@ import type { PermissionMode } from '@/cli/types'
 
 interface StatusBarProps {
   session: Session
-  live: boolean
-  claudeAvailable: boolean
+  loggedIn: boolean
+  cliAvailable: boolean
   permissionMode: PermissionMode
-  onToggleLive: () => void
+  onConnect: () => void
+  onDisconnect: () => void
 }
 
 const PERMISSION_LABELS: Record<PermissionMode, string> = {
@@ -18,9 +19,9 @@ const PERMISSION_LABELS: Record<PermissionMode, string> = {
 }
 
 export function StatusBar({
-  session, live, claudeAvailable, permissionMode, onToggleLive,
+  session, loggedIn, cliAvailable, permissionMode, onConnect, onDisconnect,
 }: StatusBarProps): JSX.Element {
-  const connected = session.status !== 'error'
+  const ready = session.status !== 'error'
   return (
     <footer
       className="flex shrink-0 items-center justify-between border-t border-border bg-surface px-3 text-xs text-fg-muted"
@@ -28,8 +29,8 @@ export function StatusBar({
     >
       <div className="flex items-center gap-4">
         <span className="flex items-center gap-1">
-          <Dot size={18} className={connected ? 'text-success' : 'text-destructive'} strokeWidth={6} />
-          {connected ? 'Connected' : 'Disconnected'}
+          <Dot size={18} className={ready ? 'text-success' : 'text-destructive'} strokeWidth={6} />
+          {ready ? 'Ready' : 'Error'}
         </span>
         <span className="flex items-center gap-1.5">
           <GitBranch size={12} />
@@ -38,19 +39,18 @@ export function StatusBar({
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Live / Mock toggle */}
+        {/* Connect / account chip (login when out, logout when in) */}
         <button
           type="button"
-          onClick={onToggleLive}
-          disabled={!claudeAvailable}
-          aria-pressed={live}
-          aria-label={live ? 'Live mode — using the real claude CLI. Click to switch to mock.' : 'Mock mode. Click to go live with the real claude CLI.'}
-          title={claudeAvailable ? (live ? 'Live (real claude CLI)' : 'Mock data') : 'claude CLI not detected'}
+          onClick={loggedIn ? onDisconnect : onConnect}
+          disabled={!cliAvailable}
+          aria-label={loggedIn ? 'Connected to your Claude account. Click to disconnect.' : 'Not connected. Click to connect your Claude account.'}
+          title={cliAvailable ? (loggedIn ? 'Connected — click to disconnect' : 'Connect your Claude account') : 'claude CLI not detected'}
           className={`rounded px-2 py-0.5 font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-            live ? 'bg-accent/20 text-accent' : 'bg-surface-2 text-fg-muted hover:text-fg'
-          } ${claudeAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+            loggedIn ? 'bg-accent/20 text-accent' : 'bg-surface-2 text-fg-muted hover:text-fg'
+          } ${cliAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
         >
-          {live ? '● Live' : '○ Mock'}
+          {loggedIn ? '● Connected' : '○ Connect'}
         </button>
 
         {/* Permission mode (read-only mirror; change it in the composer) */}

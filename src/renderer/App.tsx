@@ -41,7 +41,6 @@ export default function App(): JSX.Element {
   const composerRef = useRef<ComposerHandle>(null)
   const auth = useAuth()
 
-  const [liveMode, setLiveMode] = useState(false)
   const [claudeOk, setClaudeOk] = useState(false)
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('plan')
   const [liveStatus, setLiveStatus] = useState('')
@@ -138,8 +137,8 @@ export default function App(): JSX.Element {
     { phrases: ['toggle panel', 'tasks panel', 'activity panel', 'พาเนล', 'แผงงาน'], run: () => setRightOpen((v) => !v), confirm: th ? 'สลับพาเนล' : 'Panel toggled', label: '“panel” / “พาเนล”' },
     { phrases: ['read response', 'read last', 'read message', 'read aloud', 'อ่าน', 'อ่านให้ฟัง', 'อ่านข้อความ'], run: readLastResponse, confirm: '', label: '“read” / “อ่าน”' },
     { phrases: ['send', 'send message', 'submit', 'ส่ง', 'ส่งข้อความ', 'ส่งเลย', 'ส่งให้หน่อย'], run: () => composerRef.current?.submit(), confirm: th ? 'ส่งแล้ว' : 'Sent', label: '“send” / “ส่ง”' },
-    { phrases: ['live mode', 'go live', 'connect', 'โหมดสด', 'เชื่อมต่อ', 'ใช้งานจริง'], run: () => { if (claudeOk) setLiveMode(true) }, confirm: th ? 'โหมดสด' : 'Live mode', label: '“live” / “โหมดสด”' },
-    { phrases: ['mock mode', 'offline mode', 'โหมดจำลอง', 'โหมดทดสอบ'], run: () => setLiveMode(false), confirm: th ? 'โหมดจำลอง' : 'Mock mode', label: '“mock” / “โหมดจำลอง”' },
+    { phrases: ['connect', 'log in', 'login', 'เชื่อมต่อ', 'เข้าสู่ระบบ', 'ล็อกอิน'], run: () => { void auth.login() }, confirm: th ? 'กำลังเชื่อมต่อ' : 'Connecting', label: '“connect” / “เชื่อมต่อ”' },
+    { phrases: ['disconnect', 'log out', 'logout', 'ตัดการเชื่อมต่อ', 'ออกจากระบบ'], run: () => { void auth.logout() }, confirm: th ? 'ออกจากระบบแล้ว' : 'Disconnected', label: '“disconnect” / “ออกจากระบบ”' },
     { phrases: ['quiet', 'silence', 'be quiet', 'เงียบ', 'เงียบ ๆ'], run: stopSpeaking, confirm: '', label: '“quiet” / “เงียบ”' },
     // Permission modes (all four CLI modes, TH+EN).
     ...MODE_OPTIONS.map<VoiceCommand>((o) => ({
@@ -358,10 +357,10 @@ export default function App(): JSX.Element {
       parts: [{ kind: 'markdown' as const, text }],
     }
 
-    const useLive = liveMode && claudeOk
+    const useLive = claudeOk
     const assistantMessage = {
       id: nextId('a'), role: 'assistant' as const, createdAt: now,
-      parts: useLive ? [] : [{ kind: 'markdown' as const, text: th ? '(โหมดจำลอง — ยังไม่ได้เชื่อมต่อ)' : '(mock mode — not connected)' }],
+      parts: useLive ? [] : [{ kind: 'markdown' as const, text: th ? '(ไม่พบ claude CLI — ติดตั้ง Claude Code ก่อน)' : '(claude CLI not found — install Claude Code first)' }],
       streaming: useLive,
     }
     sessionsDispatch({ type: 'startTurn', sessionId: sid, userMessage, assistantMessage })
@@ -536,10 +535,11 @@ export default function App(): JSX.Element {
 
       <StatusBar
         session={activeSession}
-        live={liveMode}
-        claudeAvailable={claudeOk}
+        loggedIn={auth.status.loggedIn}
+        cliAvailable={claudeOk}
         permissionMode={permissionMode}
-        onToggleLive={() => setLiveMode((v) => !v)}
+        onConnect={() => void auth.login()}
+        onDisconnect={() => void auth.logout()}
       />
     </div>
   )
