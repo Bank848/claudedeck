@@ -27,30 +27,38 @@ export function LoginFlow({ auth }: { auth: Auth }): JSX.Element {
     return (
       <div className="space-y-2">
         <p className="text-sm text-fg-muted">
-          We opened your browser. After approving, paste the code shown there:
+          Waiting for you to approve in your browser… it finishes automatically — once the page
+          says “You can close this window”, you’re connected.
         </p>
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="Paste code"
-            aria-label="Login code"
-            className="min-w-0 flex-1 rounded-md border border-border bg-bg px-3 py-1.5 text-sm text-fg outline-none focus:border-accent"
-          />
-          <button
-            disabled={!code.trim() || submitting}
-            onClick={() => void auth.submitCode(code)}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {submitting ? 'Submitting…' : 'Submit'}
-          </button>
-          <button
-            onClick={() => void auth.cancel()}
-            className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-muted hover:text-fg"
-          >
-            Cancel
-          </button>
-        </div>
+        <button
+          onClick={() => void auth.cancel()}
+          className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-muted hover:text-fg"
+        >
+          Cancel
+        </button>
+        {/* Fallback: only needed if the browser didn't complete automatically and
+            the CLI asked for a code. */}
+        <details className="pt-1">
+          <summary className="cursor-pointer text-xs text-fg-muted hover:text-fg">
+            Didn’t complete automatically? Enter the code manually
+          </summary>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Paste code"
+              aria-label="Login code"
+              className="min-w-0 flex-1 rounded-md border border-border bg-bg px-3 py-1.5 text-sm text-fg outline-none focus:border-accent"
+            />
+            <button
+              disabled={!code.trim() || submitting}
+              onClick={() => void auth.submitCode(code)}
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {submitting ? 'Submitting…' : 'Submit'}
+            </button>
+          </div>
+        </details>
         {error && <p className="text-xs text-red-400">{error}</p>}
       </div>
     )
