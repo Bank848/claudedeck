@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { ChevronDown, Sparkles, Bot, Plus, Check, Trash2 } from 'lucide-react'
 import { useAssistants } from '@/settings/assistants'
 import type { ModelOption, Provider } from '@/mock/fixtures'
 import { Segmented } from './controls'
+import { usePopover, nextRovingIndex } from './Pill'
 
 /** Provider icon + colour (Claude = coral spark, Codex = emerald bot). */
 function ProviderIcon({ provider, size = 13 }: { provider: Provider; size?: number }): JSX.Element {
@@ -29,17 +30,27 @@ export function ModelPicker({ value, onChange }: ModelPickerProps): JSX.Element 
 
   const selected = all.find((m) => m.id === value) ?? all[0]
 
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+  usePopover(open, () => {
+    setOpen(false)
+    setAdding(false)
+  }, ref)
+
+  const [active, setActive] = useState(0)
+  const onListKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      setActive((i) => nextRovingIndex(i, all.length, e.key))
+    } else if (/^[1-9]$/.test(e.key)) {
+      const idx = Number(e.key) - 1
+      if (idx < all.length) {
+        onChange(all[idx].id)
         setOpen(false)
-        setAdding(false)
       }
+    } else if (e.key === 'Enter' && all[active]) {
+      onChange(all[active].id)
+      setOpen(false)
     }
-    window.addEventListener('mousedown', onDoc)
-    return () => window.removeEventListener('mousedown', onDoc)
-  }, [open])
+  }
 
   const submitAdd = (): void => {
     if (!name.trim()) return
@@ -71,13 +82,16 @@ export function ModelPicker({ value, onChange }: ModelPickerProps): JSX.Element 
           role="listbox"
           className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
         >
-          <div className="max-h-72 overflow-y-auto py-1">
-            {all.map((m) => (
+          <div className="max-h-72 overflow-y-auto py-1" onKeyDown={onListKeyDown}>
+            {all.map((m, i) => (
               <ModelRow
                 key={m.id}
                 model={m}
+                index={i}
+                active={i === active}
                 selected={m.id === selected.id}
                 removable={custom.some((c) => c.id === m.id)}
+                onFocus={() => setActive(i)}
                 onSelect={() => {
                   onChange(m.id)
                   setOpen(false)
@@ -148,14 +162,20 @@ function ModelRow({
   model,
   selected,
   removable,
+  index,
+  active,
   onSelect,
   onRemove,
+  onFocus,
 }: {
   model: ModelOption
   selected: boolean
   removable: boolean
+  index: number
+  active: boolean
   onSelect: () => void
   onRemove: () => void
+  onFocus: () => void
 }): JSX.Element {
   return (
     <div
@@ -164,10 +184,14 @@ function ModelRow({
       <button
         type="button"
         role="option"
+        data-roving
         aria-selected={selected}
+        tabIndex={active ? 0 : -1}
+        onFocus={onFocus}
         onClick={onSelect}
         className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left"
       >
+        <span className="w-4 shrink-0 text-center font-mono text-[11px] text-fg-muted">{index < 9 ? index + 1 : ''}</span>
         <ProviderIcon provider={model.provider} size={14} />
         <span className="min-w-0">
           <span className="block truncate text-sm text-fg">{model.label}</span>
