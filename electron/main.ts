@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, createWriteStream, readdirSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
 import { EdgeTTS } from '@andresaya/edge-tts'
 import { detectClaude, startTurn, cancelTurn, cancelAllTurns } from './claude'
+import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from './auth'
 
 const isDev = !app.isPackaged
 const MIN_SPLASH_MS = 1100
@@ -327,6 +328,19 @@ function registerIpc(): void {
     cancelTurn(turnId)
     return { ok: true }
   })
+
+  // ── Auth (login/logout/status) ─────────────────────────────────────────────
+  ipcMain.handle('auth:status', () => getAuthStatus())
+  ipcMain.handle('auth:login-start', () => {
+    if (!mainWindow) return { ok: false, error: 'no window' }
+    return startLogin(mainWindow)
+  })
+  ipcMain.handle('auth:login-code', (_e, code: string) => submitLoginCode(code))
+  ipcMain.handle('auth:login-cancel', () => {
+    cancelLogin()
+    return { ok: true }
+  })
+  ipcMain.handle('auth:logout', () => logout())
 }
 
 app.whenReady().then(() => {
@@ -349,11 +363,13 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   cancelAllTurns()
+  cancelLogin()
   stopMiku()
 })
 
 app.on('window-all-closed', () => {
   cancelAllTurns()
+  cancelLogin()
   stopMiku()
   if (process.platform !== 'darwin') app.quit()
 })

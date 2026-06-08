@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { AuthStatus } from './auth'
 
 /**
  * Minimal, Phase-1 surface: window controls + maximize-state subscription.
@@ -89,6 +90,31 @@ const api = {
       const l = (_e: unknown, msg: { turnId: string; code: number }): void => cb(msg)
       ipcRenderer.on('claude:done', l)
       return () => ipcRenderer.removeListener('claude:done', l)
+    },
+  },
+
+  /** In-app auth: login / logout / status (Approach B). */
+  auth: {
+    status: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:status'),
+    startLogin: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('auth:login-start'),
+    submitCode: (code: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('auth:login-code', code),
+    cancelLogin: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('auth:login-cancel'),
+    logout: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('auth:logout'),
+    onUrl: (cb: (m: { url: string }) => void): (() => void) => {
+      const l = (_e: unknown, m: { url: string }): void => cb(m)
+      ipcRenderer.on('auth:login-url', l)
+      return () => ipcRenderer.removeListener('auth:login-url', l)
+    },
+    onError: (cb: (m: { text: string }) => void): (() => void) => {
+      const l = (_e: unknown, m: { text: string }): void => cb(m)
+      ipcRenderer.on('auth:login-error', l)
+      return () => ipcRenderer.removeListener('auth:login-error', l)
+    },
+    onDone: (cb: (m: { ok: boolean; error?: string }) => void): (() => void) => {
+      const l = (_e: unknown, m: { ok: boolean; error?: string }): void => cb(m)
+      ipcRenderer.on('auth:login-done', l)
+      return () => ipcRenderer.removeListener('auth:login-done', l)
     },
   },
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic, HardDrive, Trash2, Bug, RefreshCw } from 'lucide-react'
+import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic, HardDrive, Trash2, Bug, RefreshCw, LogIn, LogOut } from 'lucide-react'
 import { useSettings } from '@/settings/SettingsContext'
 import {
   isSpeechSupported,
@@ -18,8 +18,10 @@ import { useMikuServer } from '@/settings/mikuServer'
 import { estimateUsage, clearCachedData, formatBytes } from '@/settings/storage'
 import { getAppInfo, checkForUpdate, openExternal, reportBugUrl, type AppInfo } from '@/settings/appInfo'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
+import { LoginFlow } from '@/components/LoginFlow'
+import type { useAuth } from '@/cli/useAuth'
 
-export default function SettingsView(): JSX.Element {
+export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth> }): JSX.Element {
   const { settings, update, reset } = useSettings()
   const voices = useVoices()
   const speechOk = isSpeechSupported()
@@ -597,6 +599,28 @@ export default function SettingsView(): JSX.Element {
         </Section>
 
         {/* About */}
+        <Section icon={<LogIn size={16} className="text-accent" />} title="Account">
+          {auth.status.loggedIn ? (
+            <>
+              <Row label="Status" desc={auth.status.authMethod}>
+                <span className="flex items-center gap-2 text-sm text-fg">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" /> Logged in
+                </span>
+              </Row>
+              <Row label="Account" desc={auth.status.plan ? `${auth.status.plan} plan` : undefined}>
+                <span className="text-sm text-fg">{auth.status.email ?? '—'}</span>
+              </Row>
+              <Row label="Sign out" desc="Clears credentials on this machine">
+                <LogoutButton onLogout={() => void auth.logout()} />
+              </Row>
+            </>
+          ) : (
+            <div className="px-4 py-3">
+              <LoginFlow auth={auth} />
+            </div>
+          )}
+        </Section>
+
         <Section icon={<Sparkles size={16} className="text-accent" />} title="About">
           <Row
             label="ClaudeDeck"
@@ -640,6 +664,23 @@ export default function SettingsView(): JSX.Element {
         </Section>
       </div>
     </div>
+  )
+}
+
+function LogoutButton({ onLogout }: { onLogout: () => void }): JSX.Element {
+  const [confirm, setConfirm] = useState(false)
+  useEffect(() => {
+    if (!confirm) return
+    const t = setTimeout(() => setConfirm(false), 3000)
+    return () => clearTimeout(t)
+  }, [confirm])
+  return (
+    <button
+      onClick={() => (confirm ? onLogout() : setConfirm(true))}
+      className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-fg-muted hover:text-fg"
+    >
+      <LogOut size={14} /> {confirm ? 'Click to confirm' : 'Log out'}
+    </button>
   )
 }
 

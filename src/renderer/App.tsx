@@ -31,12 +31,15 @@ import { useSessions } from '@/state/useSessions'
 import type { ComposerHandle } from '@/views/chat/Composer'
 import * as claudeClient from '@/cli/claudeClient'
 import type { PermissionMode, ClaudeEvent } from '@/cli/types'
+import { useAuth } from '@/cli/useAuth'
+import { LoginBanner } from '@/components/LoginBanner'
 
 export default function App(): JSX.Element {
   const { settings, update } = useSettings()
   const { state: sessionsState, dispatch: sessionsDispatch } = useSessions()
   const sessions = sessionsState.sessions
   const composerRef = useRef<ComposerHandle>(null)
+  const auth = useAuth()
 
   const [liveMode, setLiveMode] = useState(false)
   const [claudeOk, setClaudeOk] = useState(false)
@@ -430,7 +433,7 @@ export default function App(): JSX.Element {
       case 'guide':
         return <GuideView />
       case 'settings':
-        return <SettingsView />
+        return <SettingsView auth={auth} />
       case 'chat':
       case 'sessions':
       default:
@@ -473,6 +476,7 @@ export default function App(): JSX.Element {
       />
 
       <UpdateBanner />
+      <LoginBanner auth={auth} />
 
       <div className="flex min-h-0 flex-1">
         <ActivityBar
