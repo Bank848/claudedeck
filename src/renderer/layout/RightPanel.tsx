@@ -4,10 +4,11 @@ import TodoPanel from '@/views/tasks/TodoPanel'
 
 interface RightPanelProps {
   session: Session
+  live?: boolean
   onClose: () => void
 }
 
-export function RightPanel({ session, onClose }: RightPanelProps): JSX.Element {
+export function RightPanel({ session, live = false, onClose }: RightPanelProps): JSX.Element {
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-border bg-surface">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
@@ -25,7 +26,7 @@ export function RightPanel({ session, onClose }: RightPanelProps): JSX.Element {
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <TodoPanel session={session} />
+        <TodoPanel session={session} live={live} />
       </div>
     </aside>
   )

@@ -418,7 +418,7 @@ export default function App(): JSX.Element {
       case 'tasks':
         return <KanbanBoard />
       case 'changes':
-        return <DiffView />
+        return <DiffView session={activeSession} live={liveMode} />
       case 'skills':
         return <SkillsBrowser />
       case 'usage':
@@ -519,7 +519,7 @@ export default function App(): JSX.Element {
             <>
               <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-accent" />
               <Panel id="right" order={3} defaultSize={22} minSize={16} maxSize={36}>
-                <RightPanel session={activeSession} onClose={() => setRightOpen(false)} />
+                <RightPanel session={activeSession} live={liveMode} onClose={() => setRightOpen(false)} />
               </Panel>
             </>
           )}

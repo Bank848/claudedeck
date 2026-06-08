@@ -18,6 +18,25 @@ function fold(events: ClaudeEvent[]) {
 }
 
 describe('foldEvent', () => {
+  it('preserves the raw tool_use input on the tool call', () => {
+    const msg = emptyAssistantMessage('a1', '2026-06-08T00:00:00Z')
+    const event: ClaudeEvent = {
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'tu1', name: 'Write', input: { file_path: 'a.ts', content: 'x' } },
+        ],
+      },
+    }
+    const { message } = foldEvent(msg, event)
+    const part = message.parts[0]
+    expect(part.kind).toBe('tool')
+    if (part.kind === 'tool') {
+      expect(part.call.input).toEqual({ file_path: 'a.ts', content: 'x' })
+    }
+  })
+
   it('captures session_id from the init event', () => {
     const { sessionId } = fold([
       { type: 'system', subtype: 'init', session_id: 'sess-1' },
@@ -44,7 +63,7 @@ describe('foldEvent', () => {
     expect(msg.parts).toHaveLength(1)
     expect(msg.parts[0]).toEqual({
       kind: 'tool',
-      call: { id: 'tu1', tool: 'Read', label: 'src/app.ts', status: 'done', output: 'file contents' },
+      call: { id: 'tu1', tool: 'Read', label: 'src/app.ts', status: 'done', output: 'file contents', input: { file_path: 'src/app.ts' } },
     })
   })
 

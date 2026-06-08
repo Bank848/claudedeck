@@ -1,15 +1,22 @@
 import { useState } from 'react'
 import { FILE_CHANGES } from '@/mock/fixtures'
-import type { FileChange, DiffLine } from '@/mock/fixtures'
+import type { Session, FileChange, DiffLine } from '@/mock/fixtures'
+import { deriveChanges } from '@/cli/deriveSessionState'
 
-export default function DiffView(): JSX.Element {
+interface DiffViewProps {
+  session: Session
+  live?: boolean
+}
+
+export default function DiffView({ session, live = false }: DiffViewProps): JSX.Element {
+  const files: FileChange[] = live ? deriveChanges(session.messages) : FILE_CHANGES
   const [selectedFileId, setSelectedFileId] = useState<string>(
-    FILE_CHANGES.length > 0 ? FILE_CHANGES[0].id : ''
+    files.length > 0 ? files[0].id : ''
   )
 
-  const selectedFile = FILE_CHANGES.find((f) => f.id === selectedFileId)
+  const selectedFile = files.find((f) => f.id === selectedFileId)
 
-  if (FILE_CHANGES.length === 0) {
+  if (files.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-center">
         <div className="flex flex-col items-center gap-3">
@@ -24,7 +31,7 @@ export default function DiffView(): JSX.Element {
     <div className="flex h-full min-h-0 gap-0 overflow-hidden">
       {/* Left: file list */}
       <div className="w-64 shrink-0 border-r border-border overflow-y-auto">
-        {FILE_CHANGES.map((file) => (
+        {files.map((file) => (
           <button
             key={file.id}
             onClick={() => setSelectedFileId(file.id)}

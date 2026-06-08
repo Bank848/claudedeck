@@ -30,7 +30,13 @@ function blockToPart(block: ContentBlock): MessagePart | null {
     case 'tool_use':
       return {
         kind: 'tool',
-        call: { id: block.id, tool: block.name, label: toolLabel(block.name, block.input), status: 'running' },
+        call: {
+          id: block.id,
+          tool: block.name,
+          label: toolLabel(block.name, block.input),
+          status: 'running',
+          input: block.input,
+        },
       }
     default:
       return null

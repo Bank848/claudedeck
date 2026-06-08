@@ -55,6 +55,8 @@ export interface ToolCall {
   output?: string
   /** Optional duration label, e.g. "1.2s". */
   durationMs?: number
+  /** Raw tool input from the stream-json tool_use block (used to derive todos/diffs). */
+  input?: unknown
 }
 
 export interface CodeBlockContent {
