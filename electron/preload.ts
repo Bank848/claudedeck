@@ -19,6 +19,7 @@ const api = {
     info: (): Promise<{ version: string; platform: string; arch: string; electron: string }> =>
       ipcRenderer.invoke('app:info'),
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
+    pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('app:pick-directory'),
     checkUpdate: (): Promise<{
       ok: boolean
       error?: string

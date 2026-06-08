@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, createWriteStream, readdirSync } from 'node:fs'
@@ -215,6 +215,14 @@ function registerIpc(): void {
     electron: process.versions.electron,
   }))
   ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
+  ipcMain.handle('app:pick-directory', async (): Promise<string | null> => {
+    if (!mainWindow) return null
+    const r = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose working directory',
+      properties: ['openDirectory'],
+    })
+    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
+  })
   ipcMain.handle('app:check-update', async () => {
     try {
       const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
