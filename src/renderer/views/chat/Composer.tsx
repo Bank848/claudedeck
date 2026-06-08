@@ -2,7 +2,6 @@ import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { ArrowUp, Mic } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
 import { ModePicker } from '@/components/controls/ModePicker'
-import { EffortPicker } from '@/components/controls/EffortPicker'
 import { UsagePill } from '@/components/controls/UsagePill'
 import { PlusMenu } from '@/components/controls/PlusMenu'
 import { useSettings } from '@/settings/SettingsContext'
@@ -43,7 +42,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   { model, onSend, busy = false, tokens, permissionMode, onChangePermission, onSetCwd },
   ref,
 ): JSX.Element {
-  const { settings, update } = useSettings()
+  const { settings } = useSettings()
   const [value, setValue] = useState('')
   const [modelId, setModelId] = useState(() => seedModelId(model))
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -130,10 +129,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <ModePicker value={permissionMode} onChange={onChangePermission} />
             </div>
 
-            {/* Right: model, effort, usage, send */}
+            {/* Right: model, usage, send */}
             <div className="flex items-center gap-2">
               <ModelPicker value={modelId} onChange={setModelId} />
-              <EffortPicker value={settings.effort} onChange={(level) => update('effort', level)} />
               <UsagePill tokens={tokens} />
               <button
                 type="button"

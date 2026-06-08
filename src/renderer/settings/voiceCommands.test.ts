@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { dispatchCommand, type VoiceCommand } from './voiceCommands'
 import { MODE_OPTIONS } from './permissionModes'
-import { EFFORT_OPTIONS } from './effort'
 
 function cmds() {
   const read = vi.fn()
@@ -44,7 +43,7 @@ describe('dispatchCommand (natural sentences)', () => {
   })
 })
 
-describe('mode + effort voice commands resolve through dispatchCommand', () => {
+describe('mode voice commands resolve through dispatchCommand', () => {
   it('each mode phrase set routes to its mode command, longest-match safe', () => {
     const setMode = vi.fn()
     const commands: VoiceCommand[] = MODE_OPTIONS.map((o) => ({
@@ -54,16 +53,5 @@ describe('mode + effort voice commands resolve through dispatchCommand', () => {
     expect(setMode).toHaveBeenCalledWith('bypassPermissions')
     dispatchCommand(commands, 'โหมดวางแผน', 'th-TH')
     expect(setMode).toHaveBeenCalledWith('plan')
-  })
-
-  it('effort phrases route to the right level', () => {
-    const setEffort = vi.fn()
-    const commands: VoiceCommand[] = EFFORT_OPTIONS.map((o) => ({
-      phrases: o.phrases, run: () => setEffort(o.level), confirm: '', label: o.label,
-    }))
-    dispatchCommand(commands, 'make it smarter', 'en-US')
-    expect(setEffort).toHaveBeenCalledWith('smarter')
-    dispatchCommand(commands, 'เอฟฟอร์ตเร็ว', 'th-TH')
-    expect(setEffort).toHaveBeenCalledWith('faster')
   })
 })

@@ -26,7 +26,6 @@ import SettingsView from '@/views/settings/SettingsView'
 
 import { ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
 import { MODE_OPTIONS } from '@/settings/permissionModes'
-import { EFFORT_OPTIONS } from '@/settings/effort'
 import { useSessions } from '@/state/useSessions'
 import type { ComposerHandle } from '@/views/chat/Composer'
 import * as claudeClient from '@/cli/claudeClient'
@@ -143,13 +142,6 @@ export default function App(): JSX.Element {
       run: () => setPermissionMode(o.mode),
       confirm: th ? `โหมด ${o.label}` : o.label,
       label: `“${o.label}”`,
-    })),
-    // Effort (cosmetic) — speaks confirmation, updates the persisted setting.
-    ...EFFORT_OPTIONS.map<VoiceCommand>((o) => ({
-      phrases: o.phrases,
-      run: () => update('effort', o.level),
-      confirm: th ? `เอฟฟอร์ต ${o.label}` : `Effort ${o.label}`,
-      label: `“effort ${o.label}”`,
     })),
     // Model by spoken name → drives the Composer's local selection.
     { phrases: ['model opus', 'opus', 'โมเดลโอปุส', 'โอปุส'], run: () => composerRef.current?.setModel('opus-4-8'), confirm: th ? 'โมเดลโอปุส' : 'Opus', label: '“opus” / “โอปุส”' },
