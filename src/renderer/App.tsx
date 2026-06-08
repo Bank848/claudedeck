@@ -313,7 +313,12 @@ export default function App(): JSX.Element {
 
   const terminalSummary = (event: ClaudeEvent): string => {
     switch (event.type) {
-      case 'system': return `● init ${event.session_id ?? ''}`.trim()
+      case 'system': {
+        // The wire carries system events beyond init (hook_started/hook_response,
+        // many per turn) — those are infra noise; only surface the real init.
+        const sub = (event as { subtype?: string }).subtype
+        return sub === 'init' ? `● init ${event.session_id ?? ''}`.trim() : ''
+      }
       case 'assistant':
         return event.message.content
           .map((c) => (c.type === 'tool_use' ? `● ${c.name}` : c.type === 'text' ? '● (text)' : `● ${c.type}`))
@@ -358,10 +363,13 @@ export default function App(): JSX.Element {
       onEvent: (event: ClaudeEvent) => {
         sessionsDispatch({ type: 'event', sessionId: sid, event })
         announceEvent(event)
-        sessionsDispatch({
-          type: 'terminal', sessionId: sid,
-          line: { id: nextId('tl'), kind: 'stdout', text: terminalSummary(event) },
-        })
+        const summary = terminalSummary(event)
+        if (summary) {
+          sessionsDispatch({
+            type: 'terminal', sessionId: sid,
+            line: { id: nextId('tl'), kind: 'stdout', text: summary },
+          })
+        }
       },
       onStderr: (textLine: string) => {
         sessionsDispatch({
