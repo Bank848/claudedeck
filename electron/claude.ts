@@ -38,13 +38,42 @@ function probe(): Promise<string | null> {
   })
 }
 
-function buildArgs(a: StartTurnArgs): string[] {
+/**
+ * Map a ClaudeDeck model id (the fixture/picker id, e.g. `opus-4-8`) to a value
+ * the real `claude --model` flag accepts. The CLI takes short aliases
+ * (`opus`/`sonnet`/`haiku`) or full ids (`claude-opus-4-8`) — NOT `opus-4-8`.
+ * Codex ids aren't claude models at all, so we omit `--model` and let claude use
+ * its default. Unknown values pass through (forward-compat with real aliases).
+ */
+const MODEL_ALIASES: Record<string, string> = {
+  'opus-4-8': 'opus',
+  'sonnet-4-6': 'sonnet',
+  'haiku-4-5': 'haiku',
+}
+export function toCliModel(id?: string): string | undefined {
+  if (!id) return undefined
+  if (id in MODEL_ALIASES) return MODEL_ALIASES[id]
+  if (id.startsWith('codex')) return undefined
+  return id
+}
+
+/** Use the requested cwd only if it exists; otherwise fall back to a real dir. */
+export function pickCwd(
+  requested: string | undefined,
+  fallback: string,
+  exists: (p: string) => boolean,
+): string {
+  return requested && exists(requested) ? requested : fallback
+}
+
+export function buildArgs(a: StartTurnArgs): string[] {
+  const model = toCliModel(a.model)
   return [
     '-p', a.prompt,
     '--output-format', 'stream-json',
     '--verbose',
     '--permission-mode', a.permissionMode,
-    ...(a.model ? ['--model', a.model] : []),
+    ...(model ? ['--model', model] : []),
     ...(a.sessionId ? ['--resume', a.sessionId] : []),
   ]
 }
@@ -57,13 +86,19 @@ function buildArgs(a: StartTurnArgs): string[] {
 export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{ ok: boolean; error?: string }> {
   const bin = await detectClaude()
   if (!bin) return { ok: false, error: 'claude CLI not found' }
-  if (a.cwd && !existsSync(a.cwd)) return { ok: false, error: `cwd does not exist: ${a.cwd}` }
+
+  // Fall back to a real directory rather than failing the turn outright; surface
+  // the substitution so the user isn't surprised which cwd claude actually ran in.
+  const cwd = pickCwd(a.cwd, process.cwd(), existsSync)
+  if (cwd !== a.cwd) {
+    win.webContents.send('claude:stderr', { turnId: a.turnId, text: `cwd "${a.cwd}" not found — using ${cwd}` })
+  }
 
   const args = buildArgs(a)
   const isWin = process.platform === 'win32'
   const proc = isWin
-    ? spawn('cmd.exe', ['/c', bin, ...args], { cwd: a.cwd, windowsHide: true })
-    : spawn(bin, args, { cwd: a.cwd })
+    ? spawn('cmd.exe', ['/c', bin, ...args], { cwd, windowsHide: true })
+    : spawn(bin, args, { cwd })
 
   turns.set(a.turnId, proc)
 
