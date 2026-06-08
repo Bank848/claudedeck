@@ -45,7 +45,7 @@ popover; an Effort slider; a Context-window/Plan-usage popover).
 | Model pill | ✅ real | CLI `--model` (post-B2 alias mapping) |
 | Mode pill | ✅ real | existing `permissionMode` → CLI `--permission-mode` |
 | Usage ring | ✅ real-ish | `USAGE` fixture + live `session.tokens` (mock data, but reads real session state) |
-| Plus menu | ◑ partial | "Skills" opens the skills affordance; "Add files…" is a disabled stub |
+| Plus menu | ◑ partial | "Slash commands" + "Add folder" (real Electron dir picker → sets session cwd); "Add files/photos", "Connectors", "Plugins" are disabled stubs |
 | Effort pill | ⚠️ cosmetic | persisted UI setting only — **does not affect CLI output**; labelled as such |
 
 ## Architecture
@@ -62,9 +62,22 @@ popover; an Effort slider; a Context-window/Plan-usage popover).
 
 ### Controls (each a thin component over Pill/Popover)
 
-1. **`PlusMenu`** (`+`): a small `menu` popover. Items: "Skills" (focuses the
-   composer and inserts `/`, reusing the existing slash affordance) and
-   "Add files…" (disabled, `title="Coming soon"`). Keep to these two.
+1. **`PlusMenu`** (`+`): a small `menu` popover mirroring the Claude app's `+`
+   menu (icons + a `Ctrl+U` hint on the first item). Five rows; build what's
+   feasible, stub the rest with a disabled row + `title="Coming soon"`:
+   - **Add files or photos** (`Ctrl+U`) — ⚠️ stub (no attachment pipeline yet).
+   - **Add folder** — ✅ real: opens an Electron `dialog.showOpenDialog`
+     (`properties: ['openDirectory']`) via a new `app:pick-directory` IPC, and
+     sets the active session's `cwd` to the chosen path. This also gives the app
+     its first real UI for choosing a working directory (the gap behind B1 — the
+     cwd fallback stops being the only option). Reducer gains a `setCwd` action;
+     the chosen cwd flows into `App.handleSend` as today.
+   - **Slash commands** — ✅ real: focuses the composer and inserts `/`, reusing
+     the existing slash affordance.
+   - **Connectors ›** — ⚠️ stub (no MCP-connector management).
+   - **Plugins ›** — ⚠️ stub (no plugin management).
+   Submenu carets (`›`) on Connectors/Plugins are rendered but the rows are
+   disabled for now. Keyboard: arrow/Enter, Escape closes, focus returns to `+`.
 
 2. **`ModePicker`**: `listbox` of the four CLI permission modes with app-style
    labels + shortcuts:
