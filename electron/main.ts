@@ -218,6 +218,12 @@ function registerIpc(): void {
   ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
   ipcMain.handle('app:pick-directory', async (): Promise<string | null> => {
     if (!mainWindow) return null
+    // The splash window is alwaysOnTop; make sure it's gone and the main window
+    // is focused, otherwise the modal picker can open BEHIND them ("nothing
+    // shows"). Restore if minimized, then bring to front before opening.
+    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy()
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
     const r = await dialog.showOpenDialog(mainWindow, {
       title: 'Choose working directory',
       properties: ['openDirectory'],
