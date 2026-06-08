@@ -80,7 +80,7 @@ export function ModelPicker({ value, onChange }: ModelPickerProps): JSX.Element 
       {open && (
         <div
           role="listbox"
-          className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
+          className="absolute bottom-full right-0 z-50 mb-2 w-72 overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
         >
           <div className="max-h-72 overflow-y-auto py-1" onKeyDown={onListKeyDown}>
             {all.map((m, i) => (

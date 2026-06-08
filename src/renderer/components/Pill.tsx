@@ -79,15 +79,17 @@ interface PopoverProps {
   children: ReactNode
   /** Tailwind width class, e.g. "w-64". */
   width?: string
+  /** Anchor edge. 'right' opens leftward (for controls in the right group). */
+  align?: 'left' | 'right'
 }
 
 /** Upward-opening panel (bottom bar). Caller owns open/close + focus. */
-export function Popover({ role, ariaLabel, children, width = 'w-64' }: PopoverProps): JSX.Element {
+export function Popover({ role, ariaLabel, children, width = 'w-64', align = 'left' }: PopoverProps): JSX.Element {
   return (
     <div
       role={role}
       aria-label={ariaLabel}
-      className={`absolute bottom-full left-0 z-50 mb-2 ${width} overflow-hidden rounded-lg border border-border bg-surface shadow-xl`}
+      className={`absolute bottom-full ${align === 'right' ? 'right-0' : 'left-0'} z-50 mb-2 ${width} overflow-hidden rounded-lg border border-border bg-surface shadow-xl`}
     >
       {children}
     </div>

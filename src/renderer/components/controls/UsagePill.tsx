@@ -41,7 +41,7 @@ export function UsagePill({ tokens }: UsagePillProps): JSX.Element {
         </span>
       </button>
       {open && (
-        <Popover role="dialog" ariaLabel="Usage" width="w-72">
+        <Popover role="dialog" ariaLabel="Usage" width="w-72" align="right">
           <div className="space-y-3 p-3 text-xs">
             <div>
               <div className="mb-1 flex items-center justify-between">
