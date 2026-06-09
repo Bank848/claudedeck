@@ -35,7 +35,7 @@ export interface VoiceGroupMeta {
 }
 
 export const VOICE_GROUPS: VoiceGroupMeta[] = [
-  { id: 'instant', label: 'ทันที (ออฟไลน์)', hint: 'เสียงในเครื่อง เปิดมาก็ใช้ได้ ไม่ต้องต่อเน็ต' },
+  { id: 'instant', label: 'ทันที', hint: 'ออนไลน์ให้เสียงต่างกันจริง · ออฟไลน์ใช้เสียงในเครื่อง (เสียงเดียว ต่างกันที่ระดับเสียง)' },
   { id: 'online', label: 'ธรรมชาติ (ออนไลน์ ฟรี)', hint: 'เสียง neural ฟรี ฟังเป็นธรรมชาติ ต้องต่อเน็ต' },
   { id: 'miku', label: 'มิกุแท้ (RVC)', hint: 'เสียงมิกุจริงจากเซิร์ฟเวอร์ในเครื่อง ใช้ทรัพยากรเยอะ' },
 ]
@@ -56,6 +56,7 @@ export function buildVoiceCatalog(): VoiceChoice[] {
     gender: p.gender,
     pitch: p.pitch,
     rate: p.rate,
+    edgeVoice: p.edgeVoice, // hybrid: distinct neural timbre online, system voice offline
   }))
   const online: VoiceChoice[] = EDGE_VOICES.map((v) => ({
     id: `edge:${v.id}`,

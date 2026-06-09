@@ -80,12 +80,27 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
     setMikuPrompt(false)
     const L = resolveLang(settings.voiceLang)
     if (c.engine === 'system') {
+      // Hybrid persona: route through a distinct Edge neural voice when online
+      // (Windows has only one Thai system voice, so offline all personas sound
+      // alike — same voice, different pitch). Always set the system voiceURI +
+      // pitch/rate too: speakSmart's edge branch falls back to them offline / on
+      // Edge failure, so the persona still works without a connection.
       const voiceURI = findGenderVoice(voices, L.short, c.gender ?? 'female')
-      update('ttsEngine', 'system')
+      const pitch = c.pitch ?? 1
+      const rate = c.rate ?? 1
       update('voiceURI', voiceURI)
-      update('speechPitch', c.pitch ?? 1)
-      update('speechRate', c.rate ?? 1)
-      speak(sample, { rate: c.rate, pitch: c.pitch, voiceURI, lang: L.code })
+      update('speechPitch', pitch)
+      update('speechRate', rate)
+      if (c.edgeVoice) {
+        update('ttsEngine', 'edge')
+        update('edgeVoice', c.edgeVoice)
+        void edgeSpeak(sample, { voice: c.edgeVoice, rate, pitch }).catch(() =>
+          speak(sample, { rate, pitch, voiceURI, lang: L.code }),
+        )
+      } else {
+        update('ttsEngine', 'system')
+        speak(sample, { rate, pitch, voiceURI, lang: L.code })
+      }
     } else if (c.engine === 'edge' && c.edgeVoice) {
       update('ttsEngine', 'edge')
       update('edgeVoice', c.edgeVoice)

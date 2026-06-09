@@ -91,14 +91,24 @@ export interface VoicePreset {
   gender: 'male' | 'female'
   pitch: number
   rate: number
+  /**
+   * Preferred Edge-TTS neural voice for this persona ("hybrid"). Windows ships
+   * only ONE Thai system voice, so offline all personas collapse to it + a pitch
+   * shift and sound identical. When online we route the persona through this
+   * distinct neural voice instead (real male/female timbres + expressive
+   * multilingual voices that read Thai well), and fall back to the system voice
+   * + pitch when offline or if Edge fails.
+   */
+  edgeVoice?: string
 }
 
-/** Named voice "personas": normal + anime styles, realised via pitch/rate over a system voice. */
+/** Named voice "personas": normal + anime styles. Distinct neural voices online
+ *  (edgeVoice), system voice + pitch/rate as the offline fallback. */
 export const VOICE_PRESETS: VoicePreset[] = [
-  { id: 'male-normal', name: 'บีม', style: 'ชายปกติ', gender: 'male', pitch: 0.95, rate: 1.0 },
-  { id: 'female-normal', name: 'ครีม', style: 'หญิงปกติ', gender: 'female', pitch: 1.1, rate: 1.0 },
-  { id: 'male-anime', name: 'ไคโตะ', style: 'ชายอนิเมะ', gender: 'male', pitch: 1.5, rate: 1.12 },
-  { id: 'female-anime', name: 'ริน', style: 'หญิงอนิเมะ', gender: 'female', pitch: 1.7, rate: 1.15 },
+  { id: 'male-normal', name: 'บีม', style: 'ชายปกติ', gender: 'male', pitch: 0.95, rate: 1.0, edgeVoice: 'th-TH-NiwatNeural' },
+  { id: 'female-normal', name: 'ครีม', style: 'หญิงปกติ', gender: 'female', pitch: 1.1, rate: 1.0, edgeVoice: 'th-TH-PremwadeeNeural' },
+  { id: 'male-anime', name: 'ไคโตะ', style: 'ชายอนิเมะ', gender: 'male', pitch: 1.5, rate: 1.12, edgeVoice: 'en-US-AndrewMultilingualNeural' },
+  { id: 'female-anime', name: 'ริน', style: 'หญิงอนิเมะ', gender: 'female', pitch: 1.7, rate: 1.15, edgeVoice: 'en-US-AvaMultilingualNeural' },
   { id: 'miku', name: 'มิกุ', style: 'สังเคราะห์สดใส', gender: 'female', pitch: 2.0, rate: 1.28 },
 ]
 
