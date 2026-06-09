@@ -1,17 +1,12 @@
 import { useRef, useState } from 'react'
-import { ChevronDown, Sparkles, Bot, Plus, Check, Trash2 } from 'lucide-react'
+import { ChevronDown, Sparkles, Plus, Check, Trash2 } from 'lucide-react'
 import { useAssistants } from '@/settings/assistants'
 import type { ModelOption, Provider } from '@/mock/fixtures'
-import { Segmented } from './controls'
 import { usePopover, nextRovingIndex } from './Pill'
 
-/** Provider icon + colour (Claude = coral spark, Codex = emerald bot). */
-function ProviderIcon({ provider, size = 13 }: { provider: Provider; size?: number }): JSX.Element {
-  return provider === 'claude' ? (
-    <Sparkles size={size} className="text-accent" />
-  ) : (
-    <Bot size={size} className="text-emerald-400" />
-  )
+/** Provider icon + colour (Claude = coral spark). */
+function ProviderIcon({ size = 13 }: { size?: number }): JSX.Element {
+  return <Sparkles size={size} className="text-accent" />
 }
 
 interface ModelPickerProps {
@@ -24,7 +19,8 @@ export function ModelPicker({ value, onChange }: ModelPickerProps): JSX.Element 
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
-  const [provider, setProvider] = useState<Provider>('claude')
+  // Only one provider for now; assistants are always added under 'claude'.
+  const provider: Provider = 'claude'
   const [model, setModel] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
@@ -58,7 +54,6 @@ export function ModelPicker({ value, onChange }: ModelPickerProps): JSX.Element 
     onChange(id)
     setName('')
     setModel('')
-    setProvider('claude')
     setAdding(false)
     setOpen(false)
   }
@@ -72,7 +67,7 @@ export function ModelPicker({ value, onChange }: ModelPickerProps): JSX.Element 
         aria-expanded={open}
         className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs text-fg-muted transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        <ProviderIcon provider={selected.provider} />
+        <ProviderIcon />
         <span className="text-fg">{selected.label}</span>
         <ChevronDown size={11} />
       </button>
@@ -131,16 +126,7 @@ export function ModelPicker({ value, onChange }: ModelPickerProps): JSX.Element 
                   aria-label="Model id"
                   className="w-full rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
                 />
-                <div className="flex items-center justify-between gap-2">
-                  <Segmented
-                    ariaLabel="Provider"
-                    value={provider}
-                    onChange={setProvider}
-                    options={[
-                      { value: 'claude' as Provider, label: 'Claude' },
-                      { value: 'codex' as Provider, label: 'Codex' },
-                    ]}
-                  />
+                <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={submitAdd}
@@ -192,7 +178,7 @@ function ModelRow({
         className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left"
       >
         <span className="w-4 shrink-0 text-center font-mono text-[11px] text-fg-muted">{index < 9 ? index + 1 : ''}</span>
-        <ProviderIcon provider={model.provider} size={14} />
+        <ProviderIcon size={14} />
         <span className="min-w-0">
           <span className="block truncate text-sm text-fg">{model.label}</span>
           {model.sublabel && (

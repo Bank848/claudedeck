@@ -42,8 +42,7 @@ function probe(): Promise<string | null> {
  * Map a ClaudeDeck model id (the fixture/picker id, e.g. `opus-4-8`) to a value
  * the real `claude --model` flag accepts. The CLI takes short aliases
  * (`opus`/`sonnet`/`haiku`) or full ids (`claude-opus-4-8`) — NOT `opus-4-8`.
- * Codex ids aren't claude models at all, so we omit `--model` and let claude use
- * its default. Unknown values pass through (forward-compat with real aliases).
+ * Unknown values pass through (forward-compat with real aliases).
  */
 const MODEL_ALIASES: Record<string, string> = {
   'opus-4-8': 'opus',
@@ -53,7 +52,6 @@ const MODEL_ALIASES: Record<string, string> = {
 export function toCliModel(id?: string): string | undefined {
   if (!id) return undefined
   if (id in MODEL_ALIASES) return MODEL_ALIASES[id]
-  if (id.startsWith('codex')) return undefined
   return id
 }
 

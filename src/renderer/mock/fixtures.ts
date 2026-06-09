@@ -20,7 +20,7 @@ export type ActivityId =
 
 /* ──────────────────────────── Providers / models ───────────────────────────── */
 
-export type Provider = 'claude' | 'codex'
+export type Provider = 'claude'
 
 export interface ModelOption {
   id: string
@@ -34,8 +34,6 @@ export const MODELS: ModelOption[] = [
   { id: 'opus-4-8', provider: 'claude', label: 'Claude Opus 4.8', sublabel: 'Deepest reasoning' },
   { id: 'sonnet-4-6', provider: 'claude', label: 'Claude Sonnet 4.6', sublabel: 'Best all-round' },
   { id: 'haiku-4-5', provider: 'claude', label: 'Claude Haiku 4.5', sublabel: 'Fast & cheap' },
-  { id: 'codex-gpt-5', provider: 'codex', label: 'Codex (GPT-5)', sublabel: 'OpenAI Codex CLI' },
-  { id: 'codex-mini', provider: 'codex', label: 'Codex Mini', sublabel: 'Lightweight' },
 ]
 
 /* ─────────────────────────────── Chat messages ─────────────────────────────── */
@@ -546,7 +544,7 @@ export interface UsageModelItem {
   tokens: number
 }
 
-/** Usage grouped under one provider (Claude or Codex), each with its own limits. */
+/** Usage grouped under one provider, each with its own limits. */
 export interface ProviderUsage {
   provider: Provider
   label: string
@@ -576,19 +574,6 @@ export const USAGE: UsageStats = {
         { label: 'Claude Opus 4.8', tokens: 2_640_000 },
         { label: 'Claude Sonnet 4.6', tokens: 980_000 },
         { label: 'Claude Haiku 4.5', tokens: 90_000 },
-      ],
-    },
-    {
-      provider: 'codex',
-      label: 'Codex',
-      total: 410_000,
-      windows: [
-        { id: 'codex-5h', label: '5-hour limit', used: 24_000, limit: 150_000, resetsIn: '1h 02m' },
-        { id: 'codex-week', label: 'Weekly limit', used: 410_000, limit: 2_000_000, resetsIn: '4d 6h' },
-      ],
-      models: [
-        { label: 'Codex (GPT-5)', tokens: 360_000 },
-        { label: 'Codex Mini', tokens: 50_000 },
       ],
     },
   ],

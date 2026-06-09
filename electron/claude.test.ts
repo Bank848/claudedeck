@@ -16,11 +16,6 @@ describe('toCliModel (B2 — fixture id → valid --model)', () => {
     expect(toCliModel('haiku-4-5')).toBe('haiku')
   })
 
-  it('omits --model for codex ids (not claude models)', () => {
-    expect(toCliModel('codex-gpt-5')).toBeUndefined()
-    expect(toCliModel('codex-mini')).toBeUndefined()
-  })
-
   it('omits --model when no id given', () => {
     expect(toCliModel(undefined)).toBeUndefined()
     expect(toCliModel('')).toBeUndefined()
@@ -39,10 +34,6 @@ describe('buildArgs', () => {
     const i = args.indexOf('--model')
     expect(i).toBeGreaterThanOrEqual(0)
     expect(args[i + 1]).toBe('opus')
-  })
-
-  it('drops --model entirely for codex selections', () => {
-    expect(buildArgs({ ...base, model: 'codex-gpt-5' })).not.toContain('--model')
   })
 
   it('includes the core stream-json flags and permission mode', () => {

@@ -73,7 +73,7 @@ function ProviderBlock({ data }: { data: ProviderUsage }): JSX.Element {
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-bg">
               <div
-                className={`h-full rounded-full ${data.provider === 'codex' ? 'bg-emerald-400' : 'bg-accent'}`}
+                className="h-full rounded-full bg-accent"
                 style={{ width: `${Math.max(3, Math.round((m.tokens / maxModel) * 100))}%` }}
               />
             </div>
