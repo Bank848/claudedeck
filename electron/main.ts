@@ -11,7 +11,7 @@ import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from 
 import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd, gitForkWorktree } from './git'
 import { loadIndex, saveIndex, readTranscript, type StoredSession } from './sessionStore'
 import { loadSettings, saveSettings } from './settingsStore'
-import { safeSend } from './ipc'
+import { safeSend, safeHandle, errMsg } from './ipc'
 
 const isDev = !app.isPackaged
 const MIN_SPLASH_MS = 1100
@@ -47,7 +47,15 @@ const MIKU_PREWARM_URL = 'http://127.0.0.1:5050/v1/prewarm'
 const MIKU_READY_TIMEOUT_MS = 90_000
 
 function mikuDir(): string {
-  return join(process.cwd(), 'miku-server')
+  // Dev: the repo's miku-server. Packaged: bundled via electron-builder
+  // `extraResources` into <resourcesPath>/miku-server. process.cwd() is unreliable
+  // when packaged (it's wherever the .exe was launched from — e.g. System32 from
+  // the Start menu), so resolve against resourcesPath instead. The per-user install
+  // dir (NSIS perMachine:false → %LOCALAPPDATA%) is writable, so run.bat can still
+  // create .venv there and the in-app downloader can write models\.
+  return isDev
+    ? join(process.cwd(), 'miku-server')
+    : join(process.resourcesPath, 'miku-server')
 }
 function mikuModelsDir(): string {
   const d = join(mikuDir(), 'models')
@@ -93,7 +101,11 @@ function startMiku(): { ok: boolean; error?: string } {
   const dir = mikuDir()
   if (!existsSync(join(dir, 'server.py'))) return { ok: false, error: 'miku-server not found' }
   // run.bat sets up the venv + deps on first run, then launches server.py.
-  mikuProc = spawn('cmd.exe', ['/c', 'run.bat'], { cwd: dir, windowsHide: true })
+  // Pass the ABSOLUTE path: a bare `run.bat` relies on cmd searching the current
+  // directory, which Windows can disable (NoDefaultCurrentDirectoryInExePath /
+  // security policy / launch-from-Explorer), yielding "'run.bat' is not recognized".
+  // run.bat does `cd /d "%~dp0"` itself, so it still operates in its own folder.
+  mikuProc = spawn('cmd.exe', ['/c', join(dir, 'run.bat')], { cwd: dir, windowsHide: true })
   mikuSetPhase('starting')
   mikuProc.stdout?.on('data', (d) => mikuLog(String(d)))
   mikuProc.stderr?.on('data', (d) => mikuLog(String(d)))
@@ -240,6 +252,14 @@ function createMainWindow(): void {
     return { action: 'deny' }
   })
 
+  // Toggle DevTools with F12 (works in production build too).
+  mainWindow.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') {
+      mainWindow?.webContents.toggleDevTools()
+    }
+  })
+  if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' })
+
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -255,32 +275,49 @@ function registerIpc(): void {
     else mainWindow.maximize()
   })
   ipcMain.on('window:close', () => mainWindow?.close())
-  ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
+  // Every `handle` below goes through safeHandle: the callback can never reject
+  // and never returns a non-clonable value, so no channel can produce the
+  // renderer's "Error invoking remote method '…'" overlay. On failure it logs in
+  // the main process and returns the per-channel fallback (same shape as the
+  // success return, so preload typings stay correct).
+  safeHandle(ipcMain, 'window:is-maximized', () => mainWindow?.isMaximized() ?? false, () => false)
 
   // App meta + external links + update check (GitHub Releases).
-  ipcMain.handle('app:info', () => ({
-    version: app.getVersion(),
-    platform: process.platform,
-    arch: process.arch,
-    electron: process.versions.electron,
-  }))
-  ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
-  ipcMain.handle('app:pick-directory', async (): Promise<string | null> => {
-    if (!mainWindow) return null
-    // The splash window is alwaysOnTop; make sure it's gone and the main window
-    // is focused, otherwise the modal picker can open BEHIND them ("nothing
-    // shows"). Restore if minimized, then bring to front before opening.
-    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy()
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
-    const r = await dialog.showOpenDialog(mainWindow, {
-      title: 'Choose working directory',
-      properties: ['openDirectory'],
-    })
-    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
-  })
-  ipcMain.handle('app:check-update', async () => {
-    try {
+  safeHandle(
+    ipcMain,
+    'app:info',
+    () => ({
+      version: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+      electron: process.versions.electron,
+    }),
+    () => ({ version: '', platform: process.platform, arch: process.arch, electron: process.versions.electron }),
+  )
+  safeHandle(ipcMain, 'app:open-external', (_e, url: string) => shell.openExternal(url), () => undefined)
+  safeHandle(
+    ipcMain,
+    'app:pick-directory',
+    async (): Promise<string | null> => {
+      if (!mainWindow) return null
+      // The splash window is alwaysOnTop; make sure it's gone and the main window
+      // is focused, otherwise the modal picker can open BEHIND them ("nothing
+      // shows"). Restore if minimized, then bring to front before opening.
+      if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy()
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+      const r = await dialog.showOpenDialog(mainWindow, {
+        title: 'Choose working directory',
+        properties: ['openDirectory'],
+      })
+      return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
+    },
+    () => null,
+  )
+  safeHandle(
+    ipcMain,
+    'app:check-update',
+    async () => {
       const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
         headers: { 'user-agent': 'ClaudeDeck', accept: 'application/vnd.github+json' },
       })
@@ -295,14 +332,16 @@ function registerIpc(): void {
         url: data.html_url || `https://github.com/${REPO}/releases`,
         hasUpdate: !!latest && isNewer(latest, current),
       }
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
+    },
+    (e) => ({ ok: false, error: errMsg(e) }),
+  )
 
   // Free Edge-TTS (Microsoft online neural voices) — runs here in the main
   // process because Chromium renderers can't open the Edge TTS socket directly.
-  ipcMain.handle(
+  // Returns '' on failure rather than throwing: the renderer's edgeSpeak treats
+  // empty audio as failure and speakSmart falls back to the system voice.
+  safeHandle(
+    ipcMain,
     'tts:edge',
     async (
       _e,
@@ -315,11 +354,14 @@ function registerIpc(): void {
       })
       return tts.toBase64()
     },
+    () => '',
   )
 
   // Custom OpenAI-compatible TTS server (advanced; e.g. a local RVC/VITS Miku).
-  // Done in main to avoid renderer CORS against the user's local server.
-  ipcMain.handle(
+  // Done in main to avoid renderer CORS against the user's local server. Returns
+  // '' on failure (customSpeak/speakSmart fall back to the system voice).
+  safeHandle(
+    ipcMain,
     'tts:custom',
     async (
       _e,
@@ -342,115 +384,168 @@ function registerIpc(): void {
       const buf = Buffer.from(await res.arrayBuffer())
       return buf.toString('base64')
     },
+    () => '',
   )
 
   // Miku voice server lifecycle (start/stop the local Python server from the UI).
-  ipcMain.handle('miku:start', () => startMiku())
-  ipcMain.handle('miku:stop', () => {
-    stopMiku()
-    return { ok: true }
-  })
-  ipcMain.handle('miku:status', () => mikuPhase)
-  ipcMain.handle('miku:has-model', () => {
-    try {
+  safeHandle(ipcMain, 'miku:start', () => startMiku(), (e) => ({ ok: false, error: errMsg(e) }))
+  safeHandle(
+    ipcMain,
+    'miku:stop',
+    () => {
+      stopMiku()
+      return { ok: true }
+    },
+    () => ({ ok: false }),
+  )
+  safeHandle(ipcMain, 'miku:status', () => mikuPhase, () => 'stopped' as MikuPhase)
+  safeHandle(
+    ipcMain,
+    'miku:has-model',
+    () => {
       const files = readdirSync(mikuModelsDir(), { recursive: true }) as string[]
       return files.some((f) => String(f).toLowerCase().endsWith('.pth'))
-    } catch {
-      return false
-    }
-  })
-  ipcMain.handle('miku:open-models', () => shell.openPath(mikuModelsDir()))
+    },
+    () => false,
+  )
+  safeHandle(ipcMain, 'miku:open-models', () => shell.openPath(mikuModelsDir()), () => '')
   // Forward the renderer's fixed-phrase prewarm list to the server (done in main
   // to avoid renderer CORS against the local server). The server renders them in
   // the background and returns immediately, so this resolves fast; we never block
   // the UI on the actual cache warm-up.
-  ipcMain.handle(
+  safeHandle(
+    ipcMain,
     'miku:prewarm',
     async (_e, phrases: unknown): Promise<{ ok: boolean; count?: number; error?: string }> => {
-      try {
-        const list = (Array.isArray(phrases) ? phrases : [])
-          .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
-        if (list.length === 0) return { ok: true, count: 0 }
-        const res = await fetch(MIKU_PREWARM_URL, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ phrases: list }),
-        })
-        return { ok: res.ok, count: list.length }
-      } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : String(e) }
-      }
+      const list = (Array.isArray(phrases) ? phrases : [])
+        .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+      if (list.length === 0) return { ok: true, count: 0 }
+      const res = await fetch(MIKU_PREWARM_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phrases: list }),
+      })
+      return { ok: res.ok, count: list.length }
     },
+    (e) => ({ ok: false, error: errMsg(e) }),
   )
-  ipcMain.handle(
+  safeHandle(
+    ipcMain,
     'miku:download-model',
     async (_e, args: { url: string; index?: string }): Promise<{ ok: boolean; error?: string }> => {
-      try {
-        await downloadModel(args.url, 'miku.pth')
-        if (args.index) await downloadModel(args.index, 'miku.index')
-        return { ok: true }
-      } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : String(e) }
-      }
+      await downloadModel(args.url, 'miku.pth')
+      if (args.index) await downloadModel(args.index, 'miku.index')
+      return { ok: true }
     },
+    (e) => ({ ok: false, error: errMsg(e) }),
   )
 
   // ── Real claude CLI backend (Slice A) ──────────────────────────────────────
-  ipcMain.handle('claude:available', async () => (await detectClaude()) !== null)
-  ipcMain.handle('claude:start', (_e, args) => {
-    if (!mainWindow) return { ok: false, error: 'no window' }
-    return startTurn(mainWindow, args)
-  })
-  ipcMain.handle('claude:cancel', (_e, turnId: string) => {
-    cancelTurn(turnId)
-    return { ok: true }
-  })
-  ipcMain.handle(
+  safeHandle(ipcMain, 'claude:available', async () => (await detectClaude()) !== null, () => false)
+  safeHandle(
+    ipcMain,
+    'claude:start',
+    (_e, args) => {
+      if (!mainWindow) return { ok: false, error: 'no window' }
+      return startTurn(mainWindow, args)
+    },
+    (e) => ({ ok: false, error: errMsg(e) }),
+  )
+  safeHandle(
+    ipcMain,
+    'claude:cancel',
+    (_e, turnId: string) => {
+      cancelTurn(turnId)
+      return { ok: true }
+    },
+    () => ({ ok: false }),
+  )
+  safeHandle(
+    ipcMain,
     'claude:permission-response',
     (
       _e,
       { turnId, id, decision, input, message }:
         { turnId: string; id: string; decision: PermissionDecision; input?: unknown; message?: string },
     ) => ({ ok: respondPermission(turnId, id, decision, { input, message }) }),
+    () => ({ ok: false }),
   )
 
   // ── Auth (login/logout/status) ─────────────────────────────────────────────
-  ipcMain.handle('auth:status', () => getAuthStatus())
-  ipcMain.handle('auth:login-start', () => {
-    if (!mainWindow) return { ok: false, error: 'no window' }
-    return startLogin(mainWindow)
-  })
-  ipcMain.handle('auth:login-code', (_e, code: string) => submitLoginCode(code))
-  ipcMain.handle('auth:login-cancel', () => {
-    cancelLogin()
-    return { ok: true }
-  })
-  ipcMain.handle('auth:logout', () => logout())
+  safeHandle(ipcMain, 'auth:status', () => getAuthStatus(), () => ({ loggedIn: false }))
+  safeHandle(
+    ipcMain,
+    'auth:login-start',
+    () => {
+      if (!mainWindow) return { ok: false, error: 'no window' }
+      return startLogin(mainWindow)
+    },
+    (e) => ({ ok: false, error: errMsg(e) }),
+  )
+  safeHandle(
+    ipcMain,
+    'auth:login-code',
+    (_e, code: string) => submitLoginCode(code),
+    (e) => ({ ok: false, error: errMsg(e) }),
+  )
+  safeHandle(
+    ipcMain,
+    'auth:login-cancel',
+    () => {
+      cancelLogin()
+      return { ok: true }
+    },
+    () => ({ ok: false }),
+  )
+  safeHandle(ipcMain, 'auth:logout', () => logout(), (e) => ({ ok: false, error: errMsg(e) }))
 
   // ── git (footer pickers) ──────────────────────────────────────────────────
-  ipcMain.handle('git:status', (_e, cwd: string) => gitStatus(cwd))
-  ipcMain.handle('git:branches', (_e, cwd: string) => gitBranches(cwd))
-  ipcMain.handle('git:checkout', (_e, args: { cwd: string; branch: string }) =>
-    gitCheckout(args.cwd, args.branch),
+  safeHandle(
+    ipcMain,
+    'git:status',
+    (_e, cwd: string) => gitStatus(cwd),
+    () => ({ isRepo: false, branch: '', isWorktree: false, isDirty: false }),
   )
-  ipcMain.handle('git:worktrees', (_e, cwd: string) => gitWorktrees(cwd))
-  ipcMain.handle(
+  safeHandle(ipcMain, 'git:branches', (_e, cwd: string) => gitBranches(cwd), () => [])
+  safeHandle(
+    ipcMain,
+    'git:checkout',
+    (_e, args: { cwd: string; branch: string }) => gitCheckout(args.cwd, args.branch),
+    (e) => ({ ok: false, error: errMsg(e) }),
+  )
+  safeHandle(ipcMain, 'git:worktrees', (_e, cwd: string) => gitWorktrees(cwd), () => [])
+  safeHandle(
+    ipcMain,
     'git:worktree-add',
     (_e, args: { cwd: string; path: string; branch: string; newBranch?: boolean }) =>
       gitWorktreeAdd(args.cwd, args.path, args.branch, args.newBranch),
+    (e) => ({ ok: false, error: errMsg(e) }),
   )
-  ipcMain.handle('git:fork-worktree', (_e, args: { cwd: string; branch: string }) =>
-    gitForkWorktree(args.cwd, args.branch),
+  safeHandle(
+    ipcMain,
+    'git:fork-worktree',
+    (_e, args: { cwd: string; branch: string }) => gitForkWorktree(args.cwd, args.branch),
+    (e) => ({ ok: false, error: errMsg(e) }),
   )
 
   // ── sessions (hybrid persistence: our index + claude JSONL transcripts) ────
-  ipcMain.handle('sessions:load', () => loadIndex())
-  ipcMain.handle('sessions:save', (_e, sessions: StoredSession[]) => { saveIndex(sessions); return { ok: true } })
-  ipcMain.handle('sessions:transcript', (_e, uuid: string) => readTranscript(uuid))
+  safeHandle(ipcMain, 'sessions:load', () => loadIndex(), () => [])
+  safeHandle(
+    ipcMain,
+    'sessions:save',
+    (_e, sessions: StoredSession[]) => { saveIndex(sessions); return { ok: true } },
+    () => ({ ok: false }),
+  )
+  safeHandle(ipcMain, 'sessions:transcript', (_e, uuid: string) => readTranscript(uuid), () => null)
 
   // ── settings (disk-backed, origin-independent: survives Vite dev-port drift) ──
-  ipcMain.handle('settings:load', () => loadSettings())
-  ipcMain.handle('settings:save', (_e, s: Record<string, unknown>) => { saveSettings(s); return { ok: true } })
+  safeHandle(ipcMain, 'settings:load', () => loadSettings(), () => null)
+  safeHandle(
+    ipcMain,
+    'settings:save',
+    (_e, s: Record<string, unknown>) => { saveSettings(s); return { ok: true } },
+    () => ({ ok: false }),
+  )
 }
 
 app.whenReady().then(() => {

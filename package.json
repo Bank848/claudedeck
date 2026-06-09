@@ -15,6 +15,22 @@
       "out/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "miku-server",
+        "to": "miku-server",
+        "filter": [
+          "server.py",
+          "run.bat",
+          "requirements.txt",
+          "README.md",
+          "rvc_infer.py",
+          "rvc/**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      }
+    ],
     "win": {
       "target": [
         "nsis"

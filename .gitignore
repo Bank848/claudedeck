@@ -51,3 +51,4 @@ miku-server/_mikudemo/
 miku-server/_premwadee_test/
 miku-server/_thaibase/
 miku-server/_voicetest*/
+miku-server/.cache/
