@@ -11,7 +11,7 @@ describe('index round-trip', () => {
   it('save then load returns the same sessions', () => {
     const file = join(dir, 'sessions.json')
     const sessions = [{ id: 'a', claudeSessionId: 'uuid', cwd: 'D:/x', title: 'T', model: 'opus-4-8', tokens: 5, contextTokens: 5, updatedAt: 'now', createdAt: 'then', open: true }]
-    saveIndex(file, sessions)
+    saveIndex(sessions, file)
     expect(loadIndex(file)).toEqual(sessions)
   })
   it('missing file → []', () => { expect(loadIndex(join(dir, 'none.json'))).toEqual([]) })

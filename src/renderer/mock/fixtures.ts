@@ -106,8 +106,6 @@ export interface Session {
   claudeSessionId?: string
   /** Current context-window occupancy in tokens (input + cache). */
   contextTokens?: number
-  /** True once the 80% context warning has been announced (reset when it drops). */
-  contextAnnounced?: boolean
   /** ISO creation time (for the session list). */
   createdAt?: string
   /** Whether this session is an open tab (restored on boot). */

@@ -1,31 +1,8 @@
 import type { ChatMessage, MessagePart, ToolCall } from '@/mock/fixtures'
-import type { ContentBlock, ToolResultBlock, ToolResultContent } from './types'
+import type { ContentBlock, ToolResultBlock } from './types'
+import { blockToPart, resultText } from './blockMapping'
 
 const NOISE = new Set(['queue-operation', 'attachment', 'last-prompt', 'system'])
-
-function toolLabel(name: string, input: unknown): string {
-  const o = (input ?? {}) as Record<string, unknown>
-  for (const k of ['file_path', 'path', 'pattern', 'command', 'url', 'query'] as const) {
-    if (typeof o[k] === 'string' && o[k]) return o[k] as string
-  }
-  return name
-}
-function blockToPart(block: ContentBlock): MessagePart | null {
-  switch (block.type) {
-    case 'text': return { kind: 'markdown', text: block.text }
-    case 'thinking': return { kind: 'thinking', text: block.thinking }
-    case 'tool_use':
-      return { kind: 'tool', call: { id: block.id, tool: block.name, label: toolLabel(block.name, block.input), status: 'done', input: block.input } }
-    default: return null
-  }
-}
-function resultText(content: ToolResultContent): string {
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content.map((c) => (c.type === 'text' && typeof (c as { text?: string }).text === 'string' ? (c as { text: string }).text : '')).filter(Boolean).join('\n')
-  }
-  return ''
-}
 
 /** Apply historical tool_result blocks onto the most recent assistant tool parts. */
 function applyToolResults(messages: ChatMessage[], results: ToolResultBlock[]): void {
@@ -61,7 +38,7 @@ export function parseTranscript(jsonl: string): ChatMessage[] {
         if (results.length) applyToolResults(out, results)
       }
     } else if (o.type === 'assistant' && Array.isArray(content)) {
-      const parts = content.map((b) => blockToPart(b as ContentBlock)).filter((p): p is MessagePart => p !== null)
+      const parts = content.map((b) => blockToPart(b as ContentBlock, 'done')).filter((p): p is MessagePart => p !== null)
       out.push({ id: `h-${n++}`, role: 'assistant', createdAt: '', parts, streaming: false })
     }
   }

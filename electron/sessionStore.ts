@@ -42,10 +42,8 @@ export function loadIndex(file = indexFile()): StoredSession[] {
   }
 }
 
-export function saveIndex(file: string | StoredSession[], maybe?: StoredSession[]): void {
-  const target = typeof file === 'string' ? file : indexFile()
-  const sessions = typeof file === 'string' ? (maybe ?? []) : file
-  try { writeFileSync(target, JSON.stringify(sessions, null, 2), 'utf8') } catch { /* never throw on quit */ }
+export function saveIndex(sessions: StoredSession[], file = indexFile()): void {
+  try { writeFileSync(file, JSON.stringify(sessions, null, 2), 'utf8') } catch { /* never throw on quit */ }
 }
 
 /** Locate <uuid>.jsonl one level under the projects root. Returns abs path or null. */

@@ -18,7 +18,7 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
 
 export function TabStrip({ sessions, activeSessionId, onSelect, onNew, onClose }: TabStripProps): JSX.Element {
   return (
-    <div className="flex h-9 shrink-0 items-stretch border-b border-border bg-surface" role="tablist" aria-label="Open sessions">
+    <div className="flex h-9 shrink-0 items-stretch border-b border-border bg-surface">
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto scrollbar-thin">
         {sessions.map((s) => {
           const active = s.id === activeSessionId

@@ -32,7 +32,7 @@ import { MODE_OPTIONS } from '@/settings/permissionModes'
 import { EFFORT_OPTIONS } from '@/settings/effortLevels'
 import { useSessions, emptySession, toStored } from '@/state/useSessions'
 import * as sessionsClient from '@/state/sessionsClient'
-import { contextPct, crossed80 } from '@/settings/contextWindow'
+import { contextPct, contextTokensOf, crossed80 } from '@/settings/contextWindow'
 import type { ComposerHandle } from '@/views/chat/Composer'
 import * as claudeClient from '@/cli/claudeClient'
 import type { Effort, PermissionMode, ClaudeEvent, PermissionSettings, PermissionRequestMsg } from '@/cli/types'
@@ -82,6 +82,17 @@ export default function App(): JSX.Element {
 
   /* ── Session persistence: boot restore + debounced index save ───────────── */
 
+  // Lazy-load a session's claude transcript into the reducer. Returns false when
+  // no transcript exists (caller decides how to surface that). The parser is a
+  // dynamic import so it stays out of the boot bundle.
+  const loadHistory = async (sessionId: string, claudeSessionId: string): Promise<boolean> => {
+    const jsonl = await sessionsClient.loadTranscript(claudeSessionId)
+    if (!jsonl) return false
+    const { parseTranscript } = await import('@/cli/transcriptParser')
+    sessionsDispatch({ type: 'loadMessages', sessionId, messages: parseTranscript(jsonl), claudeSessionId })
+    return true
+  }
+
   // Don't persist until the first load completes, or we'd clobber the stored
   // index with the transient boot session.
   const hydratedRef = useRef(false)
@@ -91,18 +102,7 @@ export default function App(): JSX.Element {
         sessionsDispatch({ type: 'hydrate', stored })
         const active = stored.find((s) => s.open) ?? stored[0]
         setActiveSessionId(active.id)
-        if (active.claudeSessionId) {
-          const jsonl = await sessionsClient.loadTranscript(active.claudeSessionId)
-          if (jsonl) {
-            const { parseTranscript } = await import('@/cli/transcriptParser')
-            sessionsDispatch({
-              type: 'loadMessages',
-              sessionId: active.id,
-              messages: parseTranscript(jsonl),
-              claudeSessionId: active.claudeSessionId,
-            })
-          }
-        }
+        if (active.claudeSessionId) await loadHistory(active.id, active.claudeSessionId)
       } else {
         // Fresh install (empty index): activeSessionId defaults to ACTIVE_SESSION_ID
         // ('s1'), which has no matching session — point it at the boot session so a
@@ -508,7 +508,7 @@ export default function App(): JSX.Element {
           const prev = sessionsRef.current.find((s) => s.id === sid)
           const model = prev?.model ?? 'opus-4-8'
           const prevPct = contextPct(prev?.contextTokens ?? 0, model)
-          const nextPct = contextPct(usage.input + usage.cacheRead + usage.cacheCreation, model)
+          const nextPct = contextPct(contextTokensOf(usage), model)
           sessionsDispatch({ type: 'setUsage', sessionId: sid, usage })
           if (crossed80(prevPct, nextPct)) {
             speakStatus(
@@ -602,18 +602,8 @@ export default function App(): JSX.Element {
     setActivity('chat')
     const s = sessions.find((x) => x.id === id)
     if (s && s.messages.length === 0 && s.claudeSessionId) {
-      const jsonl = await sessionsClient.loadTranscript(s.claudeSessionId)
-      if (jsonl) {
-        const { parseTranscript } = await import('@/cli/transcriptParser')
-        sessionsDispatch({
-          type: 'loadMessages',
-          sessionId: id,
-          messages: parseTranscript(jsonl),
-          claudeSessionId: s.claudeSessionId,
-        })
-      } else {
-        speakStatus(say({ th: 'ประวัติโหลดไม่ได้ แต่คุยต่อได้', en: 'History unavailable; you can still continue' }))
-      }
+      const ok = await loadHistory(id, s.claudeSessionId)
+      if (!ok) speakStatus(say({ th: 'ประวัติโหลดไม่ได้ แต่คุยต่อได้', en: 'History unavailable; you can still continue' }))
     }
   }
 

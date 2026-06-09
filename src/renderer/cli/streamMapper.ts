@@ -1,5 +1,6 @@
 import type { ChatMessage, MessagePart, ToolCall } from '@/mock/fixtures'
-import type { ClaudeEvent, ContentBlock, ToolResultContent, TurnUsage } from './types'
+import type { ClaudeEvent, TurnUsage } from './types'
+import { blockToPart, resultText } from './blockMapping'
 
 export interface FoldResult {
   message: ChatMessage
@@ -13,48 +14,6 @@ export function emptyAssistantMessage(id: string, createdAt: string): ChatMessag
   return { id, role: 'assistant', createdAt, parts: [], streaming: true }
 }
 
-/** Best-effort short label from a tool's input, falling back to the tool name. */
-function toolLabel(name: string, input: unknown): string {
-  const o = (input ?? {}) as Record<string, unknown>
-  for (const k of ['file_path', 'path', 'pattern', 'command', 'url', 'query'] as const) {
-    if (typeof o[k] === 'string' && o[k]) return o[k] as string
-  }
-  return name
-}
-
-function blockToPart(block: ContentBlock): MessagePart | null {
-  switch (block.type) {
-    case 'text':
-      return { kind: 'markdown', text: block.text }
-    case 'thinking':
-      return { kind: 'thinking', text: block.thinking }
-    case 'tool_use':
-      return {
-        kind: 'tool',
-        call: {
-          id: block.id,
-          tool: block.name,
-          label: toolLabel(block.name, block.input),
-          status: 'running',
-          input: block.input,
-        },
-      }
-    default:
-      return null
-  }
-}
-
-function resultText(content: ToolResultContent): string {
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .map((c) => (c.type === 'text' && typeof (c as { text?: string }).text === 'string' ? (c as { text: string }).text : ''))
-      .filter(Boolean)
-      .join('\n')
-  }
-  return ''
-}
-
 /** Pure fold: apply one stream-json event to the in-progress assistant message. */
 export function foldEvent(message: ChatMessage, event: ClaudeEvent): FoldResult {
   switch (event.type) {
@@ -64,7 +23,7 @@ export function foldEvent(message: ChatMessage, event: ClaudeEvent): FoldResult 
     case 'assistant': {
       const parts = [...message.parts]
       for (const block of event.message.content) {
-        const part = blockToPart(block)
+        const part = blockToPart(block, 'running')
         if (part) parts.push(part)
       }
       return { message: { ...message, parts }, sessionId: event.session_id }
