@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
-import { ArrowUp, Mic, GitBranch } from 'lucide-react'
+import { ArrowUp, Mic, GitBranch, Square } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
 import { ModePicker } from '@/components/controls/ModePicker'
 import { EffortPicker } from '@/components/controls/EffortPicker'
@@ -27,6 +27,8 @@ interface ComposerProps {
   onSend: (text: string, modelId: string, effort?: Effort) => void
   /** True while this session's turn is streaming — blocks a second send (B4). */
   busy?: boolean
+  /** Stop/cancel the running turn; the send button becomes a Stop button while busy (#2). */
+  onStop?: () => void
   /** Active session token count (for the usage ring). */
   tokens: number
   /** Permission mode (lifted from App, still read by App.handleSend). */
@@ -44,10 +46,11 @@ function seedModelId(label: string): string {
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { model, onSend, busy = false, tokens, permissionMode, onChangePermission, onSetCwd, onFork },
+  { model, onSend, onStop, busy = false, tokens, permissionMode, onChangePermission, onSetCwd, onFork },
   ref,
 ): JSX.Element {
   const { settings } = useSettings()
+  const th = resolveLang(settings.voiceLang).short === 'th'
   const [value, setValue] = useState('')
   const [modelId, setModelId] = useState(() => seedModelId(model))
   // undefined = Auto: no --effort flag, the CLI uses its own default.
@@ -152,20 +155,32 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <div className="flex items-center gap-2">
               <ModelPicker value={modelId} onChange={setModelId} />
               <UsagePill tokens={tokens} />
-              <button
-                type="button"
-                onClick={submit}
-                disabled={!canSend}
-                title={busy ? 'Working…' : 'Send message'}
-                aria-label={busy ? 'Working, please wait' : 'Send message'}
-                className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                  canSend
-                    ? 'bg-accent hover:bg-accent-hover text-white cursor-pointer'
-                    : 'bg-surface-2 text-fg-muted cursor-not-allowed'
-                }`}
-              >
-                <ArrowUp size={14} />
-              </button>
+              {busy && onStop ? (
+                <button
+                  type="button"
+                  onClick={onStop}
+                  title={th ? 'หยุดการตอบ' : 'Stop generating'}
+                  aria-label={th ? 'หยุดการตอบ' : 'Stop generating'}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-destructive text-white transition-colors hover:bg-destructive/90 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <Square size={13} fill="currentColor" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={submit}
+                  disabled={!canSend}
+                  title={busy ? 'Working…' : 'Send message'}
+                  aria-label={busy ? 'Working, please wait' : 'Send message'}
+                  className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                    canSend
+                      ? 'bg-accent hover:bg-accent-hover text-white cursor-pointer'
+                      : 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                  }`}
+                >
+                  <ArrowUp size={14} />
+                </button>
+              )}
             </div>
           </div>
         </div>

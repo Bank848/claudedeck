@@ -36,6 +36,7 @@ import { contextPct, contextTokensOf, crossed80 } from '@/settings/contextWindow
 import type { ComposerHandle } from '@/views/chat/Composer'
 import * as claudeClient from '@/cli/claudeClient'
 import { permissionResponseOutcome } from '@/cli/permissionOutcome'
+import { startActiveTurn, endActiveTurn, activeTurnFor, type ActiveTurns } from '@/state/activeTurns'
 import type { Effort, PermissionMode, ClaudeEvent, PermissionSettings, PermissionRequestMsg } from '@/cli/types'
 import { loadPermissions, savePermissions } from '@/settings/permissionRules'
 import { PermissionPrompt } from '@/views/chat/PermissionPrompt'
@@ -64,6 +65,10 @@ export default function App(): JSX.Element {
   }
   // FIFO queue of mid-turn tool-permission requests; head is shown in a modal.
   const [permissionQueue, setPermissionQueue] = useState<PermissionRequestMsg[]>([])
+  // Live turn per session (a ref — the Stop button's visibility is already driven
+  // by session.status, so tracking the id needs no re-render). Lets Stop/voice
+  // cancel a running or hung turn (#2).
+  const activeTurnsRef = useRef<ActiveTurns>({})
   // Fork-to-worktree dialog. `sourceCwd` is captured at openFork time (not read
   // from activeSession at confirm time) so the fork targets the intended repo even
   // if the active tab changes between opening and confirming — and so the per-tab
@@ -221,6 +226,10 @@ export default function App(): JSX.Element {
     { phrases: ['toggle panel', 'tasks panel', 'activity panel', 'พาเนล', 'แผงงาน'], run: () => setRightOpen((v) => !v), confirm: th ? 'สลับพาเนล' : 'Panel toggled', label: '“panel” / “พาเนล”' },
     { phrases: ['read response', 'read last', 'read message', 'read aloud', 'อ่าน', 'อ่านให้ฟัง', 'อ่านข้อความ'], run: readLastResponse, confirm: '', label: '“read” / “อ่าน”' },
     { phrases: ['send', 'send message', 'submit', 'ส่ง', 'ส่งข้อความ', 'ส่งเลย', 'ส่งให้หน่อย'], run: () => composerRef.current?.submit(), confirm: th ? 'ส่งแล้ว' : 'Sent', label: '“send” / “ส่ง”' },
+    // Stop the running turn. Phrases avoid bare "หยุด" — that belongs to the voice
+    // PAUSE command below; longest-match would still collide, so use distinct words.
+    // confirm:'' → handleStop speaks STATUS.stopped (only when a turn is live).
+    { phrases: ['stop', 'stop turn', 'stop generating', 'cancel', 'ยกเลิก', 'หยุดงาน', 'หยุดทำงาน', 'หยุดสร้าง'], run: () => handleStop(), confirm: '', label: '“stop” / “ยกเลิก”' },
     { phrases: ['fork', 'fork session', 'fork to worktree', 'fork branch', 'แยกเซสชัน', 'แตกเซสชัน'], run: () => openFork(), confirm: th ? 'แยกเซสชัน' : 'Fork', label: '“fork” / “แยกเซสชัน”' },
     { phrases: ['connect', 'log in', 'login', 'เชื่อมต่อ', 'เข้าสู่ระบบ', 'ล็อกอิน'], run: () => { void auth.login() }, confirm: th ? 'กำลังเชื่อมต่อ' : 'Connecting', label: '“connect” / “เชื่อมต่อ”' },
     { phrases: ['disconnect', 'log out', 'logout', 'ตัดการเชื่อมต่อ', 'ออกจากระบบ'], run: () => { void auth.logout() }, confirm: th ? 'ออกจากระบบแล้ว' : 'Disconnected', label: '“disconnect” / “ออกจากระบบ”' },
@@ -516,6 +525,7 @@ export default function App(): JSX.Element {
     setLiveStatus(say(STATUS.thinking))
 
     const turnId = nextId('turn')
+    activeTurnsRef.current = startActiveTurn(activeTurnsRef.current, sid, turnId)
     const off = claudeClient.subscribe(turnId, {
       onEvent: (event: ClaudeEvent) => {
         sessionsDispatch({ type: 'event', sessionId: sid, event })
@@ -566,6 +576,7 @@ export default function App(): JSX.Element {
         sessionsDispatch({ type: 'finishTurn', sessionId: sid })
         // Drop any unanswered prompts for this finished turn.
         setPermissionQueue((q) => q.filter((r) => r.turnId !== turnId))
+        activeTurnsRef.current = endActiveTurn(activeTurnsRef.current, sid, turnId)
         off()
       },
     })
@@ -583,10 +594,22 @@ export default function App(): JSX.Element {
             line: { id: nextId('tl'), kind: 'stderr', text: r.error ?? 'failed to start claude' },
           })
           sessionsDispatch({ type: 'finishTurn', sessionId: sid })
+          activeTurnsRef.current = endActiveTurn(activeTurnsRef.current, sid, turnId)
           speakStatus(say(STATUS.error))
           off()
         }
       })
+  }
+
+  // Stop the active turn for the current session — cancels the CLI process so a
+  // hung turn (no result/exit) can't strand the session as 'running' (#2). onDone
+  // fires from the kill's exit and clears the running state + active-turn entry.
+  const handleStop = (): void => {
+    const sid = activeSession.id
+    const turnId = activeTurnFor(activeTurnsRef.current, sid)
+    if (!turnId) return
+    claudeClient.cancelTurn(turnId)
+    speakStatus(say(STATUS.stopped))
   }
 
   // Answer the head-of-queue permission request, then dequeue it. If the turn was
@@ -706,6 +729,7 @@ export default function App(): JSX.Element {
           <ChatView
             session={activeSession}
             onSend={handleSend}
+            onStop={handleStop}
             composerRef={composerRef}
             permissionMode={permissionMode}
             onChangePermission={setPermissionMode}

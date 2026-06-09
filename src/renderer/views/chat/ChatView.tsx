@@ -9,6 +9,7 @@ import { Composer, type ComposerHandle } from './Composer'
 export default function ChatView({
   session,
   onSend,
+  onStop,
   composerRef,
   permissionMode,
   onChangePermission,
@@ -17,6 +18,8 @@ export default function ChatView({
 }: {
   session: Session
   onSend: (text: string, modelId: string, effort?: Effort) => void
+  /** Stop/cancel the running turn (shown as a Stop button while busy). */
+  onStop?: () => void
   composerRef?: React.Ref<ComposerHandle>
   permissionMode: PermissionMode
   onChangePermission: (mode: PermissionMode) => void
@@ -57,6 +60,7 @@ export default function ChatView({
         ref={composerRef}
         model={session.model}
         onSend={onSend}
+        onStop={onStop}
         busy={session.status === 'running'}
         tokens={session.tokens}
         permissionMode={permissionMode}
