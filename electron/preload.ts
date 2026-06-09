@@ -53,6 +53,9 @@ const api = {
     openModels: (): Promise<string> => ipcRenderer.invoke('miku:open-models'),
     downloadModel: (args: { url: string; index?: string }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('miku:download-model', args),
+    /** Render the fixed assistant phrases into the server cache ahead of first use. */
+    prewarm: (phrases: string[]): Promise<{ ok: boolean; count?: number; error?: string }> =>
+      ipcRenderer.invoke('miku:prewarm', phrases),
     onLog: (cb: (line: string) => void): (() => void) => {
       const l = (_e: unknown, line: string): void => cb(line)
       ipcRenderer.on('miku:log', l)
@@ -74,10 +77,36 @@ const api = {
       cwd: string
       sessionId?: string
       model?: string
-      permissionMode: 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default'
+      permissionMode: 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default' | 'auto' | 'dontAsk'
       effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+      allowedTools?: string[]
+      disallowedTools?: string[]
+      additionalDirs?: string[]
+      settings?: {
+        allow?: string[]
+        deny?: string[]
+        ask?: string[]
+        defaultMode?: string
+        additionalDirectories?: string[]
+      }
+      settingSources?: string
     }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('claude:start', args),
     cancelTurn: (turnId: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('claude:cancel', turnId),
+    /** Answer a mid-turn tool-permission request. */
+    respondPermission: (
+      turnId: string,
+      id: string,
+      decision: 'allow' | 'deny',
+      opts?: { input?: unknown; message?: string },
+    ): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('claude:permission-response', { turnId, id, decision, ...opts }),
+    onPermissionRequest: (
+      cb: (msg: { turnId: string; id: string; tool: string; input: unknown; toolUseId?: string }) => void,
+    ): (() => void) => {
+      const l = (_e: unknown, msg: { turnId: string; id: string; tool: string; input: unknown; toolUseId?: string }): void => cb(msg)
+      ipcRenderer.on('claude:permission-request', l)
+      return () => ipcRenderer.removeListener('claude:permission-request', l)
+    },
     onEvent: (cb: (msg: { turnId: string; event: unknown }) => void): (() => void) => {
       const l = (_e: unknown, msg: { turnId: string; event: unknown }): void => cb(msg)
       ipcRenderer.on('claude:event', l)
@@ -93,6 +122,14 @@ const api = {
       ipcRenderer.on('claude:done', l)
       return () => ipcRenderer.removeListener('claude:done', l)
     },
+  },
+
+  /** Hybrid session persistence: our metadata index + claude's JSONL transcripts. */
+  sessions: {
+    load: (): Promise<import('./sessionStore').StoredSession[]> => ipcRenderer.invoke('sessions:load'),
+    save: (sessions: import('./sessionStore').StoredSession[]): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('sessions:save', sessions),
+    transcript: (uuid: string): Promise<string | null> => ipcRenderer.invoke('sessions:transcript', uuid),
   },
 
   /** In-app auth: login / logout / status (Approach B). */

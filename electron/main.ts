@@ -5,9 +5,11 @@ import { existsSync, mkdirSync, createWriteStream, readdirSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
 import { get as httpGet } from 'node:http'
 import { EdgeTTS } from '@andresaya/edge-tts'
-import { detectClaude, startTurn, cancelTurn, cancelAllTurns } from './claude'
+import { detectClaude, startTurn, cancelTurn, cancelAllTurns, respondPermission } from './claude'
+import type { PermissionDecision } from './permissionProtocol'
 import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from './auth'
 import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd } from './git'
+import { loadIndex, saveIndex, readTranscript, type StoredSession } from './sessionStore'
 import { safeSend } from './ipc'
 
 const isDev = !app.isPackaged
@@ -40,6 +42,7 @@ let mikuPhase: MikuPhase = 'stopped'
 let mikuHealthTimer: ReturnType<typeof setTimeout> | null = null
 
 const MIKU_HEALTH_URL = 'http://127.0.0.1:5050/v1/health'
+const MIKU_PREWARM_URL = 'http://127.0.0.1:5050/v1/prewarm'
 const MIKU_READY_TIMEOUT_MS = 90_000
 
 function mikuDir(): string {
@@ -356,6 +359,28 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle('miku:open-models', () => shell.openPath(mikuModelsDir()))
+  // Forward the renderer's fixed-phrase prewarm list to the server (done in main
+  // to avoid renderer CORS against the local server). The server renders them in
+  // the background and returns immediately, so this resolves fast; we never block
+  // the UI on the actual cache warm-up.
+  ipcMain.handle(
+    'miku:prewarm',
+    async (_e, phrases: unknown): Promise<{ ok: boolean; count?: number; error?: string }> => {
+      try {
+        const list = (Array.isArray(phrases) ? phrases : [])
+          .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+        if (list.length === 0) return { ok: true, count: 0 }
+        const res = await fetch(MIKU_PREWARM_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ phrases: list }),
+        })
+        return { ok: res.ok, count: list.length }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+  )
   ipcMain.handle(
     'miku:download-model',
     async (_e, args: { url: string; index?: string }): Promise<{ ok: boolean; error?: string }> => {
@@ -379,6 +404,14 @@ function registerIpc(): void {
     cancelTurn(turnId)
     return { ok: true }
   })
+  ipcMain.handle(
+    'claude:permission-response',
+    (
+      _e,
+      { turnId, id, decision, input, message }:
+        { turnId: string; id: string; decision: PermissionDecision; input?: unknown; message?: string },
+    ) => ({ ok: respondPermission(turnId, id, decision, { input, message }) }),
+  )
 
   // ── Auth (login/logout/status) ─────────────────────────────────────────────
   ipcMain.handle('auth:status', () => getAuthStatus())
@@ -405,6 +438,11 @@ function registerIpc(): void {
     (_e, args: { cwd: string; path: string; branch: string; newBranch?: boolean }) =>
       gitWorktreeAdd(args.cwd, args.path, args.branch, args.newBranch),
   )
+
+  // ── sessions (hybrid persistence: our index + claude JSONL transcripts) ────
+  ipcMain.handle('sessions:load', () => loadIndex())
+  ipcMain.handle('sessions:save', (_e, sessions: StoredSession[]) => { saveIndex(sessions); return { ok: true } })
+  ipcMain.handle('sessions:transcript', (_e, uuid: string) => readTranscript(uuid))
 }
 
 app.whenReady().then(() => {
