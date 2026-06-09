@@ -4,7 +4,8 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { isDictationSupported } from './speechRecognition'
-import { speak } from './speech'
+import { speakSmart } from './tts'
+import { voiceGreeting } from './prewarmPhrases'
 
 export interface VoiceCommand {
   /** Lowercase phrases; a transcript that includes any one triggers the action. */
@@ -43,7 +44,7 @@ export function dispatchCommand(
   }
   if (best) {
     best.run()
-    if (best.confirm) speak(best.confirm, { rate: 1.05, lang })
+    if (best.confirm) void speakSmart(best.confirm, { rate: 1.05, lang })
   }
   return best
 }
@@ -141,10 +142,7 @@ export function useVoiceCommands(
       }
     }
 
-    speak(
-      isThai ? 'เปิดผู้ช่วยเสียงแล้ว พูดคำสั่งได้เลย หรือพูดว่า ช่วยเหลือ' : 'Voice control on. Say a command, or say help.',
-      { rate: 1.05, lang },
-    )
+    void speakSmart(voiceGreeting(isThai), { rate: 1.05, lang })
     begin()
 
     return () => {

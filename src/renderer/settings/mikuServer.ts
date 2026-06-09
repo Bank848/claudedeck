@@ -1,5 +1,5 @@
 /** Renderer-side controls for the local Miku voice server (managed by main). */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 function api() {
   return typeof window !== 'undefined' ? window.claudedeck?.miku : undefined
@@ -79,4 +79,50 @@ export function useMikuServer(): UseMikuServer {
     refreshModel,
     downloadModel,
   }
+}
+
+/**
+ * Fire a one-shot prewarm of the Miku TTS cache when the server reaches `ready`.
+ *
+ * Renders the fixed assistant phrases (passed in by the caller — the single
+ * source of truth) ahead of time so their first live use is a cache HIT instead
+ * of a cold edge-tts + RVC render. Fires once per ready transition; re-arms when
+ * the server restarts (phase leaves `ready`) and re-fires if the phrase set
+ * changes while ready (e.g. the user switches voice language).
+ *
+ * No-op unless `enabled` (the custom/Miku engine is selected) and the managed
+ * Miku bridge is available.
+ */
+export function useMikuPrewarm(enabled: boolean, phrases: readonly string[]): void {
+  const m = api()
+  const firedSig = useRef<string | null>(null)
+  // Stable signature of the phrase set; drives the "already warmed this set" guard.
+  const sig = phrases.join('␟')
+
+  useEffect(() => {
+    if (!m) return
+    let phase: MikuPhase = 'stopped'
+
+    const maybeFire = (): void => {
+      if (!enabled || phase !== 'ready' || phrases.length === 0) return
+      if (firedSig.current === sig) return
+      firedSig.current = sig
+      void m.prewarm?.([...phrases])
+    }
+
+    void m.status().then((p) => {
+      phase = p
+      maybeFire()
+    })
+    const off = m.onStatus((p) => {
+      phase = p
+      // A stop/restart re-arms prewarm so the next ready warms the cache again.
+      if (p !== 'ready') firedSig.current = null
+      maybeFire()
+    })
+    return off
+    // `phrases` is captured via the stable `sig`; depending on the array identity
+    // (new every render) would re-subscribe needlessly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m, enabled, sig])
 }

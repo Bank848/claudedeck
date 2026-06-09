@@ -21,6 +21,7 @@ import re
 import glob
 import time
 import asyncio
+import hashlib
 import tempfile
 import logging
 import threading
@@ -58,6 +59,19 @@ INDEX_RATE = float(os.environ.get("RVC_INDEX_RATE", "0.5"))
 # base TTS speaking rate (edge-tts SSML). Slowing it (e.g. "-10%") gives the RVC
 # more frames per phoneme → clearer words. "" / "+0%" = natural speed.
 BASE_RATE = os.environ.get("RVC_BASE_RATE", "-10%")
+# RVC volume-envelope mix: 0.0 keeps the base TTS loudness contour (matches the
+# hand-tuned best-so-far `miku_rmsp00.mp3`); 1.0 follows the Miku model's own
+# envelope. The old server didn't pass this at all → RVC's default leaked through
+# and the live voice drifted from the tuned reference. Pin it to 0.0 by default.
+RVC_RMS_MIX = float(os.environ.get("RVC_RMS_MIX", "0.0"))
+
+# Disk cache of rendered MP3s, keyed by (text + every knob that affects output).
+# Repeated phrases (status lines, greetings) skip the whole edge-tts + RVC
+# pipeline and return instantly — the heavy stages only ever run once per unique
+# (text, settings) pair. Persistent across restarts so warm-up cost is paid once.
+CACHE_DIR = os.environ.get("MIKU_CACHE_DIR") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), ".cache"
+)
 
 # Per-language voice tuning (A/B-verified by ear on MikuAI v2). Both languages now use
 # an English-base multilingual edge-tts voice (Ava) — it reads Thai clearly and far more
@@ -71,8 +85,14 @@ BASE_RATE = os.environ.get("RVC_BASE_RATE", "-10%")
 #   pitch: semitones up from the base voice.   filter: median window on the pitch.
 LANG = {
     "th": {
-        "voice":   os.environ.get("BASE_VOICE_TH") or os.environ.get("BASE_VOICE", "en-US-AvaMultilingualNeural"),
-        "pitch":   int(os.environ.get("RVC_PITCH_TH", "3")),
+        # Premwadee (th-TH female neural) is the base the best-so-far `miku_rmsp00.mp3`
+        # was tuned on. Override with BASE_VOICE_TH=en-US-AvaMultilingualNeural to try
+        # the multilingual-English base again (reads Thai smoothly but a different timbre).
+        "voice":   os.environ.get("BASE_VOICE_TH") or os.environ.get("BASE_VOICE", "th-TH-PremwadeeNeural"),
+        # +4 chosen by ear over the +3 "rmsp00" reference — +3 sat in normal-adult-female
+        # range and read "ทุ้ม/heavy"; +4 nudges toward Miku's brighter timbre without the
+        # smear that higher offsets introduce on this base+model. Override via RVC_PITCH_TH.
+        "pitch":   int(os.environ.get("RVC_PITCH_TH", "4")),
         "protect": float(os.environ.get("RVC_PROTECT_TH", "0.33")),
         "filter":  int(os.environ.get("RVC_FILTER_TH", "5")),
     },
@@ -171,9 +191,46 @@ def _edge_save(text: str, voice: str, out_path: str, kwargs: dict,
     raise last if last else RuntimeError("edge-tts failed")
 
 
+def _cache_path(text: str, lang: str, cfg: dict) -> str:
+    """Stable path for this exact (text, settings) render. Any knob change → new key."""
+    key = "|".join(str(p) for p in (
+        text, lang, cfg["voice"], cfg["pitch"], cfg["protect"], cfg["filter"],
+        INDEX_RATE, RVC_RMS_MIX, BASE_RATE, MODEL_PATH,
+    ))
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+    return os.path.join(CACHE_DIR, f"{digest}.mp3")
+
+
+def _cache_get(path: str) -> bytes | None:
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        return data if data else None
+    except OSError:
+        return None
+
+
+def _cache_put(path: str, mp3: bytes) -> None:
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        # Write to a temp file then atomically replace, so a crash mid-write never
+        # leaves a truncated cache entry that would play as a broken clip.
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "wb") as f:
+            f.write(mp3)
+        os.replace(tmp, path)
+    except OSError as e:
+        logger.warning("cache write failed (%s) — serving without cache", e)
+
+
 def synth(text: str) -> bytes:
     lang = _lang_of(text)
     cfg = LANG[lang]
+    cache_path = _cache_path(text, lang, cfg)
+    cached = _cache_get(cache_path)
+    if cached is not None:
+        logger.info("synth[%s] %d chars → cache HIT (0.00s)", lang, len(text))
+        return cached
     with tempfile.TemporaryDirectory() as d:
         base_mp3 = os.path.join(d, "base.mp3")
         # 1) base TTS (edge-tts is async; this runs in a worker thread). Voice is
@@ -190,10 +247,11 @@ def synth(text: str) -> bytes:
         # 2) RVC convert → Miku timbre (per-language pitch/protect/filter)
         out, sr = _engine.convert(audio16k, f0_up_key=cfg["pitch"],
                                   index_rate=INDEX_RATE, protect=cfg["protect"],
-                                  filter_radius=cfg["filter"])
+                                  filter_radius=cfg["filter"], rms_mix_rate=RVC_RMS_MIX)
         t2 = time.perf_counter()
         # 3) → mp3
         mp3 = _int16_to_mp3(out, sr)
+        _cache_put(cache_path, mp3)
         t3 = time.perf_counter()
         # Latency breakdown. Synthesis is non-streaming, so total ≈ time-to-first-byte
         # the client experiences. RTF<1 means we render faster than realtime.
@@ -219,6 +277,62 @@ def health():
         "base_rate": BASE_RATE or "+0%",
         "lang": LANG,
     }
+
+
+# ── Prewarm ──────────────────────────────────────────────────────────────────
+# The renderer owns the finite list of fixed assistant phrases (status lines,
+# view names, greeting, mode/effort confirmations). On server-ready it POSTs them
+# here so we render each ONCE in the background — turning the user's first live
+# use of each phrase into a 0.00s cache HIT instead of a cold edge-tts + RVC
+# render. The first convert here also absorbs the one-time CUDA/cuDNN warm-up.
+_prewarm_lock = threading.Lock()
+_prewarm_active = False
+
+
+def _run_prewarm(phrases: list[str]) -> None:
+    """Render each phrase one at a time (synth() skips already-cached ones) so we
+    never fight the live speech path for the GPU. Per-phrase failures are logged
+    and skipped — a transient edge-tts blip must not abort the whole batch."""
+    global _prewarm_active
+    done = 0
+    try:
+        for p in phrases:
+            text = (p or "").strip()
+            if not text:
+                continue
+            try:
+                synth(text)
+                done += 1
+            except Exception:
+                logger.warning("prewarm failed for %r:\n%s", text, traceback.format_exc())
+    finally:
+        with _prewarm_lock:
+            _prewarm_active = False
+        logger.info("prewarm batch done (%d/%d rendered)", done, len(phrases))
+
+
+@app.post("/v1/prewarm")
+async def prewarm(req: Request):
+    if _engine is None:
+        msg = _engine_error or "Model is still loading…"
+        return JSONResponse({"error": msg}, status_code=503)
+    body = await req.json()
+    raw = body.get("phrases") or []
+    phrases = [p.strip() for p in raw if isinstance(p, str) and p.strip()]
+    if not phrases:
+        return JSONResponse({"status": "empty", "warming": 0})
+    # Re-entry guard: a prewarm already in flight just keeps going — don't stack
+    # a second pass that would double the GPU load for no benefit.
+    global _prewarm_active
+    with _prewarm_lock:
+        if _prewarm_active:
+            return JSONResponse({"status": "already", "warming": 0})
+        _prewarm_active = True
+    threading.Thread(
+        target=_run_prewarm, args=(phrases,), daemon=True, name="miku-prewarm"
+    ).start()
+    logger.info("prewarm started: %d phrase(s)", len(phrases))
+    return JSONResponse({"status": "warming", "warming": len(phrases)}, status_code=202)
 
 
 @app.post("/v1/audio/speech")
