@@ -84,8 +84,10 @@ export function Select({ value, onChange, options, ariaLabel }: SelectProps): JS
       onChange={(e) => onChange(e.target.value)}
       className="min-w-[180px] rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg transition-colors hover:border-border-strong focus:border-accent focus:outline-none"
     >
-      {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>
+      {options.map((opt, i) => (
+        // Index-suffixed key: option values can collide (e.g. a mic with a blank
+        // deviceId vs the "System default" entry) and React warns on dup keys.
+        <option key={`${opt.value}-${i}`} value={opt.value}>
           {opt.label}
         </option>
       ))}

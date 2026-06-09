@@ -41,10 +41,10 @@ VARIANTS = {
 
 
 def _mp3_to_16k_mono(path: str) -> np.ndarray:
-    seg = AudioSegment.from_file(path).set_channels(1).set_frame_rate(16000)
-    samples = np.array(seg.get_array_of_samples()).astype(np.float32)
-    peak = float(1 << (8 * seg.sample_width - 1))
-    return samples / peak
+    # soxr_hq resample (24k→16k) keeps consonants clearer than pydub set_frame_rate.
+    import librosa
+
+    return librosa.load(path, sr=16000, mono=True, res_type="soxr_hq")[0].astype(np.float32)
 
 
 def _int16_to_mp3(audio: np.ndarray, sr: int, out_path: str) -> None:

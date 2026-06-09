@@ -228,7 +228,11 @@ export default function App(): JSX.Element {
     if (isLikelyEcho(t)) return // Miku's own playback re-entering the mic
     if (tryRename(t)) return
     let cmd = t
-    if (settings.requireWakeWord) {
+    // Wake word is only meaningful for always-listening (browser/continuous) mode.
+    // In push-to-talk (local Whisper) the user already held the talk button to
+    // address the assistant, so requiring the name on top silently drops every
+    // plain command (e.g. "ไปหน้าแชท") — bypass it there.
+    if (settings.requireWakeWord && useBrowserStt) {
       // Accept EITHER the assistant's name or the selected voice's name.
       const names = [settings.assistantName, settings.voiceName]
         .map((n) => n.trim().toLowerCase())
@@ -313,6 +317,34 @@ export default function App(): JSX.Element {
       lang: voiceCode,
     })
   }
+
+  // ── Built-in screen-reader mode: announce view changes (live region + TTS) ──
+  const VIEW_NAMES: Record<ActivityId, { th: string; en: string }> = {
+    chat: { th: 'แชท', en: 'Chat' },
+    sessions: { th: 'เซสชัน', en: 'Sessions' },
+    tasks: { th: 'บอร์ดงาน', en: 'Tasks board' },
+    changes: { th: 'การเปลี่ยนแปลง', en: 'Changes' },
+    skills: { th: 'สกิล', en: 'Skills' },
+    usage: { th: 'การใช้งาน', en: 'Usage' },
+    guide: { th: 'คู่มือ', en: 'Guide' },
+    settings: { th: 'ตั้งค่า', en: 'Settings' },
+  }
+  // Skip announcing the initial mount; only speak on real navigations.
+  const srMounted = useRef(false)
+  useEffect(() => {
+    if (!settings.screenReaderMode) {
+      srMounted.current = false
+      return
+    }
+    if (!srMounted.current) {
+      srMounted.current = true
+      return
+    }
+    const name = VIEW_NAMES[activity]
+    if (name) speakStatus(th ? name.th : name.en)
+    // speakStatus intentionally excluded: avoid re-announcing on unrelated re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activity, settings.screenReaderMode])
 
   const announceEvent = (event: ClaudeEvent): void => {
     if (event.type === 'assistant') {

@@ -32,8 +32,8 @@ export function VoiceControlIndicator({
 
   if (paused) {
     return (
-      <div role="status" aria-live="polite" className="fixed left-1/2 top-12 z-[100] -translate-x-1/2">
-        <div className="flex items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-xs shadow-xl backdrop-blur">
+      <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-12 z-[100] -translate-x-1/2">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-xs shadow-xl backdrop-blur">
           <PauseDot />
           <span className="font-medium text-fg">Voice assistant paused</span>
           <span className="text-fg-muted">— say “resume” / “เริ่มทำงานต่อ”</span>
@@ -55,9 +55,9 @@ export function VoiceControlIndicator({
     <div
       role="status"
       aria-live="polite"
-      className="fixed left-1/2 top-12 z-[100] -translate-x-1/2"
+      className="pointer-events-none fixed left-1/2 top-12 z-[100] -translate-x-1/2"
     >
-      <div className="flex items-center gap-2 rounded-full border border-accent/40 bg-surface/95 px-3 py-1.5 text-xs shadow-xl backdrop-blur">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-accent/40 bg-surface/95 px-3 py-1.5 text-xs shadow-xl backdrop-blur">
         {mode === 'local' ? (
           <>
             {localStatus === 'loading' || localStatus === 'thinking' ? (

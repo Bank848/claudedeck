@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic, HardDrive, Trash2, Bug, RefreshCw, LogIn, LogOut } from 'lucide-react'
+import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic, HardDrive, Trash2, Bug, RefreshCw, LogIn, LogOut, ChevronDown } from 'lucide-react'
 import { useSettings } from '@/settings/SettingsContext'
 import {
   isSpeechSupported,
@@ -7,14 +7,14 @@ import {
   speak,
   resolveLang,
   findGenderVoice,
-  VOICE_PRESETS,
-  type VoicePreset,
 } from '@/settings/speech'
 import { isDictationSupported } from '@/settings/speechRecognition'
-import { useAudioInputs, useMicLevel } from '@/settings/audioDevices'
+import { useAudioInputs, useMicLevel, useMicMonitor } from '@/settings/audioDevices'
 import { speakSmart } from '@/settings/tts'
-import { EDGE_VOICES, edgeSpeak } from '@/settings/edgeTts'
+import { edgeSpeak } from '@/settings/edgeTts'
+import { customSpeak } from '@/settings/customTts'
 import { useMikuServer } from '@/settings/mikuServer'
+import { buildVoiceCatalog, findVoiceChoice, VOICE_GROUPS, type VoiceChoice } from '@/settings/voiceCatalog'
 import { estimateUsage, clearCachedData, formatBytes } from '@/settings/storage'
 import { getAppInfo, checkForUpdate, openExternal, reportBugUrl, type AppInfo } from '@/settings/appInfo'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
@@ -26,11 +26,12 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
   const voices = useVoices()
   const speechOk = isSpeechSupported()
   const { inputs } = useAudioInputs()
-  const [micTest, setMicTest] = useState(false)
-  const micLevel = useMicLevel(micTest, settings.micDeviceId)
+  const micMonitor = useMicMonitor(settings.micDeviceId)
+  const micLevel = useMicLevel(micMonitor.recording, settings.micDeviceId)
   const miku = useMikuServer()
   const [modelUrl, setModelUrl] = useState('')
   const [dlStatus, setDlStatus] = useState('')
+  const [mikuPrompt, setMikuPrompt] = useState(false)
   const [cacheUsage, setCacheUsage] = useState(0)
   const [clearing, setClearing] = useState(false)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
@@ -41,10 +42,6 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
     void getAppInfo().then(setAppInfo)
   }, [])
 
-  const voiceOptions = [
-    { value: '', label: 'System default' },
-    ...voices.map((v) => ({ value: v.voiceURI, label: `${v.name} (${v.lang})` })),
-  ]
   const micOptions = [
     { value: '', label: 'System default' },
     ...inputs.map((d) => ({ value: d.deviceId, label: d.label })),
@@ -53,22 +50,66 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
   const dictationOk = isDictationSupported()
   const sample = resolveLang(settings.voiceLang).short === 'th' ? 'สวัสดีครับ นี่คือเสียงผู้ช่วย' : 'Hi, this is your assistant voice.'
 
-  const testVoice = (): void =>
+  const catalog = buildVoiceCatalog()
+  const activeChoice = findVoiceChoice(settings.voiceChoiceId)
+
+  // One-line readiness summary for the Miku-RVC card (announced via aria-live).
+  const mikuReady = miku.available && miku.hasModel && miku.running
+  const mikuStatus = !miku.available
+    ? 'ใช้ได้เฉพาะแอปเดสก์ท็อป'
+    : mikuReady
+      ? 'พร้อมใช้งาน 🟢'
+      : !miku.hasModel
+        ? 'ขั้นต่อไป: เพิ่มไฟล์โมเดล'
+        : 'ขั้นต่อไป: กดเริ่มเซิร์ฟเวอร์'
+
+  const previewActive = (): void => {
+    const L = resolveLang(settings.voiceLang)
     void speakSmart(sample, {
       rate: settings.speechRate,
       pitch: settings.speechPitch,
       voiceURI: settings.voiceURI,
-      lang: resolveLang(settings.voiceLang).code,
+      lang: L.code,
     })
+  }
 
-  const applyPreset = (p: VoicePreset): void => {
-    const langShort = resolveLang(settings.voiceLang).short
-    const voiceURI = findGenderVoice(voices, langShort, p.gender)
-    update('voiceURI', voiceURI)
-    update('speechPitch', p.pitch)
-    update('speechRate', p.rate)
-    update('voiceName', p.name)
-    speak(sample, { rate: p.rate, pitch: p.pitch, voiceURI, lang: resolveLang(settings.voiceLang).code })
+  /** Pick a voice: set engine + voice + pitch/rate in one action, then preview. */
+  const applyChoice = (c: VoiceChoice): void => {
+    update('voiceChoiceId', c.id)
+    update('voiceName', c.name)
+    setMikuPrompt(false)
+    const L = resolveLang(settings.voiceLang)
+    if (c.engine === 'system') {
+      const voiceURI = findGenderVoice(voices, L.short, c.gender ?? 'female')
+      update('ttsEngine', 'system')
+      update('voiceURI', voiceURI)
+      update('speechPitch', c.pitch ?? 1)
+      update('speechRate', c.rate ?? 1)
+      speak(sample, { rate: c.rate, pitch: c.pitch, voiceURI, lang: L.code })
+    } else if (c.engine === 'edge' && c.edgeVoice) {
+      update('ttsEngine', 'edge')
+      update('edgeVoice', c.edgeVoice)
+      void edgeSpeak(sample, {
+        voice: c.edgeVoice,
+        rate: settings.speechRate,
+        pitch: settings.speechPitch,
+      }).catch(() => undefined)
+    } else if (c.engine === 'custom') {
+      update('ttsEngine', 'custom')
+      if (miku.available && !miku.running) {
+        setMikuPrompt(true)
+      } else {
+        // Call customSpeak directly with explicit opts — speakSmart reads a
+        // module-level cfg published via a useEffect that has not committed yet
+        // in this same tick, so it would preview with the *previous* engine.
+        void customSpeak(sample, {
+          url: settings.customUrl,
+          voice: settings.customVoice,
+          model: settings.customModel,
+          apiKey: settings.customApiKey,
+        }).catch(() => undefined)
+      }
+    }
   }
 
   return (
@@ -86,415 +127,378 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
           </button>
         </div>
 
-        {/* Accessibility */}
-        <Section icon={<Volume2 size={16} className="text-accent" />} title="Accessibility">
+        {/* Accessibility — first, because it is the heart of the app for blind users */}
+        <Section icon={<Eye size={16} className="text-accent" />} title="การเข้าถึง (Accessibility)">
           <Row
-            label="Read text aloud"
-            desc="Adds a speaker button on each assistant message to hear it spoken (text-to-speech). Press Esc to stop."
+            label="โหมดอ่านหน้าจอ (Screen-reader mode)"
+            desc="เปิดแล้วแอปจะประกาศด้วยเสียงเมื่อเปลี่ยนหน้า/สถานะสำคัญ ผ่านลำโพง — สำหรับผู้ใช้ที่มองไม่เห็น. ค่าจะถูกจำไว้."
           >
             <Toggle
-              label="Read text aloud"
+              label="โหมดอ่านหน้าจอ"
+              checked={settings.screenReaderMode}
+              onChange={(v) => update('screenReaderMode', v)}
+            />
+          </Row>
+
+          <Row
+            label="อ่านข้อความออกเสียง"
+            desc="เพิ่มปุ่มลำโพงบนข้อความผู้ช่วยแต่ละอัน เพื่อฟังเสียงอ่าน (text-to-speech). กด Esc เพื่อหยุด."
+          >
+            <Toggle
+              label="อ่านข้อความออกเสียง"
               checked={settings.readAloud}
               onChange={(v) => update('readAloud', v)}
             />
           </Row>
 
-          {!speechOk && (
-            <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-fg-muted">
-              Text-to-speech is not available in this environment.
-            </p>
-          )}
-
-          <Row label="Voice" desc="Choose which system voice reads the text.">
-            <Select
-              ariaLabel="Speech voice"
-              value={settings.voiceURI}
-              onChange={(v) => update('voiceURI', v)}
-              options={voiceOptions}
-            />
-          </Row>
-
           <Row
-            label="Voice persona"
-            desc="Voice styles — tap to preview. The assistant's call-name is set separately below (default “กุ้ง”)."
-          >
-            <div className="flex flex-wrap justify-end gap-1.5">
-              {VOICE_PRESETS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => applyPreset(p)}
-                  disabled={!speechOk}
-                  title={p.style}
-                  className="flex flex-col items-center rounded-lg border border-border bg-bg px-2.5 py-1 transition-colors hover:border-accent disabled:opacity-50"
-                >
-                  <span className="text-xs font-medium text-fg">{p.name}</span>
-                  <span className="text-[10px] text-fg-muted">{p.style}</span>
-                </button>
-              ))}
-            </div>
-          </Row>
-
-          <Row label="Pitch" desc={`Higher = more anime · ${settings.speechPitch.toFixed(2)}`}>
-            <Slider
-              ariaLabel="Voice pitch"
-              min={0.5}
-              max={2}
-              step={0.05}
-              value={settings.speechPitch}
-              onChange={(v) => update('speechPitch', v)}
-            />
-          </Row>
-
-          <Row label="Speaking speed" desc={`Rate ${settings.speechRate.toFixed(1)}×`}>
-            <div className="flex items-center gap-3">
-              <Slider
-                ariaLabel="Speaking speed"
-                min={0.7}
-                max={1.6}
-                step={0.1}
-                value={settings.speechRate}
-                onChange={(v) => update('speechRate', v)}
-              />
-              <button
-                type="button"
-                onClick={testVoice}
-                disabled={!speechOk}
-                className="flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Play size={13} />
-                Test
-              </button>
-            </div>
-          </Row>
-
-          <Row
-            label="Voice input (speech-to-text)"
+            label="พิมพ์ด้วยเสียง (speech-to-text)"
             desc={
               dictationOk
-                ? 'Show a microphone button in the composer to dictate messages by voice.'
-                : 'Speech recognition is not available in this environment.'
+                ? 'แสดงปุ่มไมโครโฟนในกล่องพิมพ์ เพื่อพูดเป็นข้อความ.'
+                : 'การรู้จำเสียงไม่พร้อมใช้งานในสภาพแวดล้อมนี้.'
             }
           >
             <Toggle
-              label="Voice input"
+              label="พิมพ์ด้วยเสียง"
               checked={settings.speechToText && dictationOk}
               onChange={(v) => update('speechToText', v)}
             />
           </Row>
-        </Section>
 
-        {/* Voice output engine */}
-        <Section icon={<Volume2 size={16} className="text-accent" />} title="Voice output engine">
-          <Row
-            label="Engine"
-            desc={
-              settings.ttsEngine === 'edge'
-                ? 'Edge-TTS — free neural voices (incl. Thai), no API key, unlimited. Needs internet.'
-                : settings.ttsEngine === 'custom'
-                  ? 'Custom local server (advanced) — plug in your own RVC/VITS Miku.'
-                  : 'System voices with pitch personas — instant & offline.'
-            }
-          >
-            <Segmented
-              ariaLabel="Voice output engine"
-              value={settings.ttsEngine}
-              onChange={(v) => update('ttsEngine', v)}
-              options={[
-                { value: 'system', label: 'System' },
-                { value: 'edge', label: 'Edge-TTS (free)' },
-                { value: 'custom', label: 'Custom (Miku)' },
-              ]}
+          <Row label="ความคมชัดสูง" desc="ตัวอักษรสว่างขึ้น เส้นขอบเข้มขึ้น สำหรับผู้มีสายตาเลือนราง.">
+            <Toggle
+              label="ความคมชัดสูง"
+              checked={settings.highContrast}
+              onChange={(v) => update('highContrast', v)}
             />
           </Row>
 
-          {settings.ttsEngine === 'custom' && (
-            <>
-              <p className="border-b border-border px-4 py-3 text-xs text-amber-400/90">
-                ⚠️ ขั้นสูง: รัน Miku server (RVC) ในเครื่อง. <strong>ใช้ทรัพยากรเยอะ อาจมีดีเลย์</strong>{' '}
-                โดยเฉพาะ GPU อ่อน/CPU — แต่ได้เสียง Miku จริง. ถ้า server ล่มจะถอยไปใช้เสียงระบบให้อัตโนมัติ
-                <br />
-                <strong>แนะนำ: ต้องมี GPU NVIDIA ที่แรงพอ</strong> (เช่น RTX 3060/4070 ขึ้นไป, VRAM ≥ 6 GB)
-                ถึงจะเหมาะกับการใช้งานจริง — แปลงเสียงเร็ว ดีเลย์ต่ำ. บน CPU/GPU อ่อนจะช้ามาก (หลายวินาทีต่อประโยค)
-                และครั้งแรกต้องโหลดโมเดล ~3 GB.
+          <Row label="ลดการเคลื่อนไหว" desc="ลดแอนิเมชันและเคอร์เซอร์กะพริบ.">
+            <Toggle
+              label="ลดการเคลื่อนไหว"
+              checked={settings.reduceMotion}
+              onChange={(v) => update('reduceMotion', v)}
+            />
+          </Row>
+
+          <Row label="ขนาดอินเทอร์เฟซ" desc="ย่อหรือขยายทั้งหน้าจอ.">
+            <Segmented
+              ariaLabel="ขนาดอินเทอร์เฟซ"
+              value={settings.uiScale}
+              onChange={(v) => update('uiScale', v)}
+              options={[
+                { value: 'small', label: 'เล็ก' },
+                { value: 'normal', label: 'ปกติ' },
+                { value: 'large', label: 'ใหญ่' },
+              ]}
+            />
+          </Row>
+        </Section>
+
+        {/* Voice — ONE box: pick a named voice, everything else is set for you */}
+        <Section icon={<Volume2 size={16} className="text-accent" />} title="เสียงพูด (Voice)">
+          <div className="px-4 py-3">
+            <p className="mb-3 text-xs text-fg-muted">
+              เลือกเสียงเดียว แล้วระบบตั้งค่าที่เหลือให้เอง — กดปุ่มไหนก็เล่นตัวอย่างให้ฟังทันที.
+            </p>
+
+            {!speechOk && (
+              <p className="mb-3 rounded-md border border-border bg-muted px-3 py-2 text-xs text-fg-muted">
+                เสียงพูดไม่พร้อมใช้งานในสภาพแวดล้อมนี้.
               </p>
+            )}
 
-              {miku.available && (
-                <>
-                  <Row
-                    label="Miku model"
-                    desc={
-                      miku.hasModel
-                        ? 'พบโมเดลแล้ว (miku.pth) ✓'
-                        : 'ยังไม่มีโมเดล — กดเปิดโฟลเดอร์แล้ววาง miku.pth หรือวาง URL โหลดด้านล่าง'
-                    }
-                  >
-                    <button
-                      type="button"
-                      onClick={miku.openModels}
-                      className="rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg"
-                    >
-                      เปิดโฟลเดอร์โมเดล
-                    </button>
-                  </Row>
+            <div className="space-y-4">
+              {VOICE_GROUPS.map((g) => {
+                const choices = catalog.filter((c) => c.group === g.id)
+                if (!choices.length) return null
+                return (
+                  <VoiceRadioGroup
+                    key={g.id}
+                    label={g.label}
+                    hint={g.hint}
+                    choices={choices}
+                    selectedId={settings.voiceChoiceId}
+                    disabled={!speechOk}
+                    onSelect={applyChoice}
+                  />
+                )
+              })}
+            </div>
 
-                  <Row label="โหลดโมเดลจาก URL" desc="วางลิงก์ตรงไฟล์ .pth (เช่นจาก HuggingFace).">
-                    <div className="flex items-center gap-2">
-                      {dlStatus && <span className="text-xs text-fg-muted">{dlStatus}</span>}
-                      <input
-                        aria-label="Model URL"
-                        value={modelUrl}
-                        onChange={(e) => setModelUrl(e.target.value)}
-                        placeholder="https://….pth"
-                        className="w-44 rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        disabled={!modelUrl.trim()}
-                        onClick={async () => {
-                          setDlStatus('กำลังโหลด…')
-                          const r = await miku.downloadModel(modelUrl.trim())
-                          setDlStatus(r.ok ? 'สำเร็จ ✓' : `ผิดพลาด: ${r.error ?? ''}`)
-                        }}
-                        className="rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-                      >
-                        โหลด
-                      </button>
-                    </div>
-                  </Row>
-
-                  <Row
-                    label="Miku server"
-                    desc={
-                      miku.running ? 'กำลังทำงาน — ครั้งแรกจะลง deps สักครู่' : 'กดเริ่มเพื่อรันในแอป'
-                    }
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`h-2 w-2 rounded-full ${miku.running ? 'bg-success' : 'bg-fg-muted'}`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => (miku.running ? void miku.stop() : void miku.start())}
-                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                          miku.running
-                            ? 'bg-destructive/20 text-destructive hover:bg-destructive/30'
-                            : 'bg-accent text-white hover:bg-accent-hover'
-                        }`}
-                      >
-                        {miku.running ? 'หยุด' : 'เริ่ม Miku server'}
-                      </button>
-                    </div>
-                  </Row>
-
-                  {miku.log && (
-                    <pre className="mx-4 mb-3 max-h-32 overflow-auto rounded-md border border-border bg-bg p-2 font-mono text-[10px] leading-relaxed text-fg-muted">
-                      {miku.log}
-                    </pre>
-                  )}
-                </>
-              )}
-              <Row label="Server URL" desc="OpenAI-compatible /v1/audio/speech endpoint.">
-                <input
-                  aria-label="Custom server URL"
-                  value={settings.customUrl}
-                  onChange={(e) => update('customUrl', e.target.value)}
-                  className="w-56 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
-                />
-              </Row>
-              <Row label="Voice" desc="Voice name on your server (e.g. miku).">
-                <input
-                  aria-label="Custom voice"
-                  value={settings.customVoice}
-                  onChange={(e) => update('customVoice', e.target.value)}
-                  className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
-                />
-              </Row>
-              <Row label="Model" desc="Model id (default tts-1).">
-                <input
-                  aria-label="Custom model"
-                  value={settings.customModel}
-                  onChange={(e) => update('customModel', e.target.value)}
-                  className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
-                />
-              </Row>
-              <Row label="API key" desc="Optional bearer token.">
-                <input
-                  aria-label="Custom API key"
-                  type="password"
-                  value={settings.customApiKey}
-                  onChange={(e) => update('customApiKey', e.target.value)}
-                  placeholder="(none)"
-                  className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
-                />
-              </Row>
-              <Row label="Test" desc="Synthesize a sample via your server.">
-                <button
-                  type="button"
-                  onClick={testVoice}
-                  className="flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
-                >
-                  <Play size={13} />
-                  Test
-                </button>
-              </Row>
-              <p className="px-4 py-3 text-xs text-fg-muted">
-                Works with any OpenAI-style TTS server (e.g. openedai-speech, openai-edge-tts, or an
-                RVC/VITS wrapper). Run it on your GPU, then set the URL + voice above.
-              </p>
-            </>
-          )}
-
-          {settings.ttsEngine === 'edge' && (
-            <div className="border-b border-border px-4 py-3">
-              <div className="mb-2 text-sm font-medium text-fg">Edge-TTS voice (free)</div>
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                {EDGE_VOICES.map((v) => {
-                  const active = settings.edgeVoice === v.id
-                  return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => {
-                        update('edgeVoice', v.id)
-                        update('voiceName', v.name)
-                        void edgeSpeak(sample, {
-                          voice: v.id,
-                          rate: settings.speechRate,
-                          pitch: settings.speechPitch,
-                        }).catch(() => undefined)
-                      }}
-                      title={v.vibe}
-                      className={`flex flex-col items-start rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
-                        active ? 'border-accent bg-accent/10' : 'border-border bg-bg hover:border-border-strong'
-                      }`}
-                    >
-                      <span className="text-sm font-medium text-fg">{v.name}</span>
-                      <span className="truncate text-[10px] text-fg-muted">{v.vibe}</span>
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
-                <span className="text-xs text-fg-muted">One-tap:</span>
+            {/* Miku-RVC needs the local server — offer to start it, announced live */}
+            {mikuPrompt && (
+              <div
+                role="alert"
+                className="mt-3 flex items-center justify-between gap-3 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-300"
+              >
+                <span>ต้องเปิด Miku server ก่อนถึงจะได้ยินเสียงมิกุ.</span>
                 <button
                   type="button"
                   onClick={() => {
-                    update('edgeVoice', 'en-US-AnaNeural')
-                    update('speechPitch', 1.6)
-                    update('speechRate', 1.08)
-                    update('voiceName', 'มิกุ')
-                    void edgeSpeak('Hi! I am Miku, your assistant.', {
-                      voice: 'en-US-AnaNeural',
-                      rate: 1.08,
-                      pitch: 1.6,
-                    }).catch(() => undefined)
+                    void miku.start()
+                    setMikuPrompt(false)
                   }}
-                  className="rounded-full border border-accent bg-accent/10 px-3 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                  className="shrink-0 rounded-md bg-accent px-2.5 py-1 font-medium text-white transition-colors hover:bg-accent-hover"
                 >
-                  มิกุ ✨ (Ana + สดใส)
+                  เปิดเลย
                 </button>
               </div>
-              <p className="mt-2 text-xs text-fg-muted">
-                Free, no key, unlimited. Tip: raise Pitch for a brighter, anime-ish tone.
-              </p>
+            )}
+          </div>
+
+          {/* Advanced — progressive disclosure: hidden until the user wants it */}
+          <details className="group border-t border-border">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-4 py-3 text-sm font-medium text-fg-muted transition-colors hover:text-fg">
+              <ChevronDown size={15} className="transition-transform group-open:rotate-180" />
+              ตั้งค่าขั้นสูง
+            </summary>
+
+            <div className="border-t border-border">
+              <Row label="ระดับเสียงสูง-ต่ำ (Pitch)" desc={`สูง = อนิเมะขึ้น · ${settings.speechPitch.toFixed(2)}`}>
+                <Slider
+                  ariaLabel="ระดับเสียง"
+                  min={0.5}
+                  max={2}
+                  step={0.05}
+                  value={settings.speechPitch}
+                  onChange={(v) => update('speechPitch', v)}
+                />
+              </Row>
+
+              <Row label="ความเร็วในการพูด" desc={`${settings.speechRate.toFixed(1)}×`}>
+                <div className="flex items-center gap-3">
+                  <Slider
+                    ariaLabel="ความเร็วในการพูด"
+                    min={0.7}
+                    max={1.6}
+                    step={0.1}
+                    value={settings.speechRate}
+                    onChange={(v) => update('speechRate', v)}
+                  />
+                  <button
+                    type="button"
+                    onClick={previewActive}
+                    disabled={!speechOk}
+                    className="flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Play size={13} />
+                    ทดสอบ
+                  </button>
+                </div>
+              </Row>
+
+              {/* Miku-RVC card — only when a Miku voice is active. Two-step checklist
+                  (model → server) + a single action button, instead of a wall of inputs. */}
+              {activeChoice?.engine === 'custom' && (
+                <div className="border-t border-border px-4 py-3">
+                  {/* One-line readiness summary, announced to screen readers */}
+                  <div role="status" aria-live="polite" className="mb-3 flex items-center gap-2 text-sm font-medium">
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${mikuReady ? 'bg-success' : 'bg-amber-400'}`} />
+                    <span className={mikuReady ? 'text-success' : 'text-amber-300'}>มิกุ — {mikuStatus}</span>
+                  </div>
+
+                  {miku.available ? (
+                    <ol className="space-y-2.5">
+                      {/* ① Model */}
+                      <li className="flex items-center justify-between gap-3">
+                        <span className="flex items-center gap-2 text-sm text-fg">
+                          <span aria-hidden>{miku.hasModel ? '✅' : '⬜'}</span>
+                          ① โมเดล: {miku.hasModel ? 'พบแล้ว' : 'ยังไม่มี'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={miku.openModels}
+                          className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg"
+                        >
+                          {miku.hasModel ? 'เปิดโฟลเดอร์' : 'เลือกไฟล์…'}
+                        </button>
+                      </li>
+
+                      {/* Load-from-URL — only shown until a model exists, to cut clutter */}
+                      {!miku.hasModel && (
+                        <li className="flex items-center gap-2 pl-6">
+                          <input
+                            aria-label="โหลดโมเดลจาก URL"
+                            value={modelUrl}
+                            onChange={(e) => setModelUrl(e.target.value)}
+                            placeholder="หรือวางลิงก์ .pth แล้วกดโหลด"
+                            className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
+                          />
+                          {dlStatus && <span className="shrink-0 text-xs text-fg-muted">{dlStatus}</span>}
+                          <button
+                            type="button"
+                            disabled={!modelUrl.trim()}
+                            onClick={async () => {
+                              setDlStatus('กำลังโหลด…')
+                              const r = await miku.downloadModel(modelUrl.trim())
+                              setDlStatus(r.ok ? 'สำเร็จ ✓' : `ผิดพลาด: ${r.error ?? ''}`)
+                            }}
+                            className="shrink-0 rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                          >
+                            โหลด
+                          </button>
+                        </li>
+                      )}
+
+                      {/* ② Server — single start/stop button */}
+                      <li className="flex items-center justify-between gap-3">
+                        <span className="flex items-center gap-2 text-sm text-fg">
+                          <span aria-hidden>{miku.running ? '✅' : '⬜'}</span>
+                          ② เซิร์ฟเวอร์: {miku.running ? 'กำลังทำงาน' : 'ยังไม่เริ่ม'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => (miku.running ? void miku.stop() : void miku.start())}
+                          className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                            miku.running
+                              ? 'bg-destructive/20 text-destructive hover:bg-destructive/30'
+                              : 'bg-accent text-white hover:bg-accent-hover'
+                          }`}
+                        >
+                          {miku.running ? 'หยุด' : 'เริ่ม'}
+                        </button>
+                      </li>
+                    </ol>
+                  ) : (
+                    <p className="text-xs text-fg-muted">เปิดบนแอปเดสก์ท็อปเพื่อรัน Miku server.</p>
+                  )}
+
+                  {/* GPU caveat — collapsed to one line, expandable */}
+                  <details className="mt-3 text-xs">
+                    <summary className="cursor-pointer text-amber-400/90 transition-colors hover:text-amber-300">
+                      ⚠️ ใช้ทรัพยากรเครื่องสูง (กดดูรายละเอียด)
+                    </summary>
+                    <p className="mt-1.5 leading-relaxed text-fg-muted">
+                      รัน RVC ในเครื่อง — แนะนำ GPU NVIDIA (RTX 3060/4070 ขึ้นไป, VRAM ≥ 6 GB).
+                      ครั้งแรกต้องโหลดโมเดล ~3 GB และลง deps สักครู่. GPU อ่อน/CPU อาจมีดีเลย์.
+                      ถ้า server ล่มจะถอยไปใช้เสียงระบบให้อัตโนมัติ.
+                    </p>
+                  </details>
+
+                  {miku.log && (
+                    <pre className="mt-2 max-h-32 overflow-auto rounded-md border border-border bg-bg p-2 font-mono text-[10px] leading-relaxed text-fg-muted">
+                      {miku.log}
+                    </pre>
+                  )}
+
+                  {/* Expert server settings — 99% never touch these, so nest them deeper */}
+                  <details className="mt-2">
+                    <summary className="cursor-pointer list-none text-xs font-medium text-fg-muted transition-colors hover:text-fg">
+                      ▸ ตั้งค่าเซิร์ฟเวอร์ (ผู้เชี่ยวชาญ)
+                    </summary>
+                    <div className="mt-1 border-t border-border">
+                      <Row label="Server URL" desc="OpenAI-compatible /v1/audio/speech endpoint.">
+                        <input
+                          aria-label="Custom server URL"
+                          value={settings.customUrl}
+                          onChange={(e) => update('customUrl', e.target.value)}
+                          className="w-56 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
+                        />
+                      </Row>
+                      <Row label="ชื่อเสียงบนเซิร์ฟเวอร์" desc="เช่น miku.">
+                        <input
+                          aria-label="Custom voice"
+                          value={settings.customVoice}
+                          onChange={(e) => update('customVoice', e.target.value)}
+                          className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
+                        />
+                      </Row>
+                      <Row label="Model" desc="Model id (default tts-1).">
+                        <input
+                          aria-label="Custom model"
+                          value={settings.customModel}
+                          onChange={(e) => update('customModel', e.target.value)}
+                          className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
+                        />
+                      </Row>
+                      <Row label="API key" desc="Optional bearer token.">
+                        <input
+                          aria-label="Custom API key"
+                          type="password"
+                          value={settings.customApiKey}
+                          onChange={(e) => update('customApiKey', e.target.value)}
+                          placeholder="(none)"
+                          className="w-40 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
+                        />
+                      </Row>
+                    </div>
+                  </details>
+                </div>
+              )}
             </div>
-          )}
+          </details>
         </Section>
 
-        {/* Voice assistant (accessibility) */}
-        <Section icon={<Mic size={16} className="text-accent" />} title="Voice assistant">
+        {/* Voice assistant (accessibility) — unchanged */}
+        <Section icon={<Mic size={16} className="text-accent" />} title="ผู้ช่วยเสียง (Voice assistant)">
           <Row
-            label="Hands-free voice control"
-            desc="Operate the app by voice — say a command to change views, switch tabs, or toggle panels. Built for blind and low-vision users. Toggle anytime with Ctrl+Shift+V."
+            label="ควบคุมด้วยเสียง (แฮนด์ฟรี)"
+            desc="สั่งงานแอปด้วยเสียง — เปลี่ยนหน้า สลับแท็บ เปิด-ปิดพาเนล. สำหรับผู้พิการทางสายตา. สลับเปิด-ปิดได้ทุกเมื่อด้วย Ctrl+Shift+V."
           >
             <Toggle
-              label="Hands-free voice control"
+              label="ควบคุมด้วยเสียง"
               checked={settings.voiceCommands && dictationOk}
               onChange={(v) => update('voiceCommands', v)}
             />
           </Row>
 
           <Row
-            label="Assistant name"
-            desc={`Call it by this name OR the selected voice's name${settings.voiceName ? ` (“${settings.voiceName}”)` : ''} — e.g. “กุ้ง เปิดตั้งค่า”. Rename by voice: “เปลี่ยนชื่อเป็น …”.`}
+            label="ชื่อผู้ช่วย"
+            desc={`เรียกด้วยชื่อนี้ หรือชื่อเสียงที่เลือก${settings.voiceName ? ` (“${settings.voiceName}”)` : ''} — เช่น “กุ้ง เปิดตั้งค่า”. เปลี่ยนชื่อด้วยเสียง: “เปลี่ยนชื่อเป็น …”.`}
           >
             <input
-              aria-label="Assistant name"
+              aria-label="ชื่อผู้ช่วย"
               value={settings.assistantName}
               onChange={(e) => update('assistantName', e.target.value)}
               className="w-32 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
             />
           </Row>
 
-          <Row
-            label="Require name before command"
-            desc="Only act when you say the assistant's name first — avoids accidental triggers."
-          >
+          <Row label="ต้องเรียกชื่อก่อนสั่ง" desc="ทำงานเฉพาะเมื่อพูดชื่อผู้ช่วยขึ้นก่อน — กันสั่งโดยไม่ตั้งใจ.">
             <Toggle
-              label="Require name before command"
+              label="ต้องเรียกชื่อก่อนสั่ง"
               checked={settings.requireWakeWord}
               onChange={(v) => update('requireWakeWord', v)}
             />
           </Row>
 
-          <Row label="Assistant language" desc="Language the assistant listens in and replies with.">
+          <Row label="ภาษาผู้ช่วย" desc="ภาษาที่ผู้ช่วยฟังและตอบ.">
             <Segmented
-              ariaLabel="Assistant language"
+              ariaLabel="ภาษาผู้ช่วย"
               value={settings.voiceLang}
               onChange={(v) => update('voiceLang', v)}
               options={[
-                { value: 'auto', label: 'Auto' },
+                { value: 'auto', label: 'อัตโนมัติ' },
                 { value: 'th-TH', label: 'ไทย' },
                 { value: 'en-US', label: 'English' },
               ]}
             />
           </Row>
 
-          <Row
-            label="Speech engine"
-            desc={
-              settings.sttEngine === 'local'
-                ? 'Local Whisper runs on-device (offline after the model downloads once). Hold Ctrl+Shift+Space to talk.'
-                : 'Browser engine is fast but may use an online service.'
-            }
-          >
-            <Segmented
-              ariaLabel="Speech engine"
-              value={settings.sttEngine}
-              onChange={(v) => update('sttEngine', v)}
-              options={[
-                { value: 'browser', label: 'Browser' },
-                { value: 'local', label: 'Local (Whisper)' },
-              ]}
-            />
-          </Row>
-
-          {settings.sttEngine === 'local' && (
-            <Row label="Local model" desc="Base is more accurate for Thai; Tiny is faster and smaller.">
-              <Segmented
-                ariaLabel="Local model"
-                value={settings.whisperModel}
-                onChange={(v) => update('whisperModel', v)}
-                options={[
-                  { value: 'Xenova/whisper-tiny', label: 'Tiny' },
-                  { value: 'Xenova/whisper-base', label: 'Base' },
-                ]}
-              />
-            </Row>
-          )}
-          <Row label="Microphone" desc="Input device for the local (Whisper) engine and the test below.">
+          <Row label="ไมโครโฟน" desc="อุปกรณ์รับเสียงสำหรับแปลงเสียงเป็นข้อความ (Whisper Base, ในเครื่อง) และการทดสอบด้านล่าง. กดค้าง Ctrl+Shift+Space เพื่อพูด.">
             <Select
-              ariaLabel="Microphone"
+              ariaLabel="ไมโครโฟน"
               value={settings.micDeviceId}
               onChange={(v) => update('micDeviceId', v)}
               options={micOptions}
             />
           </Row>
 
-          <Row label="Test microphone" desc="Speak and watch the level move to confirm it works.">
+          <Row
+            label="ทดสอบไมโครโฟน"
+            desc="กดอัดเสียงสั้น ๆ แล้วระบบเล่นกลับให้ฟังทันที — ยืนยันว่าไมค์ทำงานโดยฟังเสียงตัวเอง. แถบด้านข้างแสดงระดับเสียงตอนอัด."
+          >
             <div className="flex items-center gap-3">
-              <div className="h-2 w-32 overflow-hidden rounded-full bg-bg">
+              <div
+                className="h-2 w-32 overflow-hidden rounded-full bg-bg"
+                role="meter"
+                aria-label="ระดับเสียงไมโครโฟน"
+                aria-valuenow={Math.round(micLevel * 100)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
                 <div
                   className="h-full rounded-full bg-success transition-[width] duration-75"
                   style={{ width: `${Math.round(micLevel * 100)}%` }}
@@ -502,35 +506,28 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
               </div>
               <button
                 type="button"
-                onClick={() => setMicTest((v) => !v)}
+                onClick={() => (micMonitor.recording ? micMonitor.stopAndPlay() : void micMonitor.start())}
                 className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  micTest
-                    ? 'bg-destructive/20 text-destructive'
-                    : 'bg-accent text-white hover:bg-accent-hover'
+                  micMonitor.recording ? 'bg-destructive/20 text-destructive' : 'bg-accent text-white hover:bg-accent-hover'
                 }`}
               >
                 <Mic size={13} />
-                {micTest ? 'Stop' : 'Test'}
+                {micMonitor.recording ? 'หยุดแล้วฟัง' : 'อัดทดสอบ'}
               </button>
             </div>
           </Row>
 
           {!dictationOk ? (
-            <p className="px-4 py-3 text-xs text-fg-muted">
-              Speech recognition is not available in this environment.
-            </p>
+            <p className="px-4 py-3 text-xs text-fg-muted">การรู้จำเสียงไม่พร้อมใช้งานในสภาพแวดล้อมนี้.</p>
           ) : (
             <div className="px-4 py-3">
-              <div className="mb-1.5 text-xs font-medium text-fg">Try saying:</div>
+              <div className="mb-1.5 text-xs font-medium text-fg">ลองพูดว่า:</div>
               <div className="flex flex-wrap gap-1.5">
                 {(resolveLang(settings.voiceLang).short === 'th'
                   ? ['แชท', 'งาน', 'การใช้งาน', 'ตั้งค่า', 'แท็บถัดไป', 'อ่าน', 'หยุด', 'เริ่มทำงานต่อ', 'ปิดผู้ช่วย']
                   : ['chat', 'tasks', 'usage', 'settings', 'next tab', 'read', 'pause', 'resume', 'turn off']
                 ).map((c) => (
-                  <span
-                    key={c}
-                    className="rounded-full border border-border bg-bg px-2 py-0.5 text-xs text-fg-muted"
-                  >
+                  <span key={c} className="rounded-full border border-border bg-bg px-2 py-0.5 text-xs text-fg-muted">
                     “{c}”
                   </span>
                 ))}
@@ -539,44 +536,11 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
           )}
         </Section>
 
-        {/* Appearance */}
-        <Section icon={<Eye size={16} className="text-accent" />} title="Appearance">
-          <Row label="Interface scale" desc="Zoom the whole interface up or down.">
-            <Segmented
-              ariaLabel="Interface scale"
-              value={settings.uiScale}
-              onChange={(v) => update('uiScale', v)}
-              options={[
-                { value: 'small', label: 'Small' },
-                { value: 'normal', label: 'Default' },
-                { value: 'large', label: 'Large' },
-              ]}
-            />
-          </Row>
-          <Row
-            label="High contrast text"
-            desc="Brighter text and stronger borders for low-vision readability."
-          >
-            <Toggle
-              label="High contrast text"
-              checked={settings.highContrast}
-              onChange={(v) => update('highContrast', v)}
-            />
-          </Row>
-          <Row label="Reduce motion" desc="Minimize animations and the streaming caret.">
-            <Toggle
-              label="Reduce motion"
-              checked={settings.reduceMotion}
-              onChange={(v) => update('reduceMotion', v)}
-            />
-          </Row>
-        </Section>
-
         {/* Storage */}
-        <Section icon={<HardDrive size={16} className="text-accent" />} title="Storage">
+        <Section icon={<HardDrive size={16} className="text-accent" />} title="พื้นที่จัดเก็บ (Storage)">
           <Row
-            label="Cached data"
-            desc={`Downloaded voice models (offline Whisper, etc.) cached on this device — about ${formatBytes(cacheUsage)}. Settings are kept.`}
+            label="ข้อมูลแคช"
+            desc={`โมเดลเสียงที่โหลดไว้ (Whisper ออฟไลน์ ฯลฯ) แคชบนเครื่องนี้ — ประมาณ ${formatBytes(cacheUsage)}. การตั้งค่าจะถูกเก็บไว้.`}
           >
             <button
               type="button"
@@ -598,19 +562,19 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
           </Row>
         </Section>
 
-        {/* About */}
-        <Section icon={<LogIn size={16} className="text-accent" />} title="Account">
+        {/* Account */}
+        <Section icon={<LogIn size={16} className="text-accent" />} title="บัญชี (Account)">
           {auth.status.loggedIn ? (
             <>
-              <Row label="Status" desc={auth.status.authMethod}>
+              <Row label="สถานะ" desc={auth.status.authMethod}>
                 <span className="flex items-center gap-2 text-sm text-fg">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" /> Logged in
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" /> เข้าสู่ระบบแล้ว
                 </span>
               </Row>
-              <Row label="Account" desc={auth.status.plan ? `${auth.status.plan} plan` : undefined}>
+              <Row label="บัญชี" desc={auth.status.plan ? `${auth.status.plan} plan` : undefined}>
                 <span className="text-sm text-fg">{auth.status.email ?? '—'}</span>
               </Row>
-              <Row label="Sign out" desc="Clears credentials on this machine">
+              <Row label="ออกจากระบบ" desc="ล้างข้อมูลรับรองบนเครื่องนี้">
                 <LogoutButton onLogout={() => void auth.logout()} />
               </Row>
             </>
@@ -621,7 +585,8 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
           )}
         </Section>
 
-        <Section icon={<Sparkles size={16} className="text-accent" />} title="About">
+        {/* About */}
+        <Section icon={<Sparkles size={16} className="text-accent" />} title="เกี่ยวกับ (About)">
           <Row
             label="ClaudeDeck"
             desc={
@@ -667,6 +632,71 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
   )
 }
 
+/** A labeled radiogroup of voice chips with roving tabindex + arrow-key navigation. */
+function VoiceRadioGroup({
+  label,
+  hint,
+  choices,
+  selectedId,
+  disabled,
+  onSelect,
+}: {
+  label: string
+  hint: string
+  choices: VoiceChoice[]
+  selectedId: string
+  disabled: boolean
+  onSelect: (c: VoiceChoice) => void
+}): JSX.Element {
+  const selectedIdx = choices.findIndex((c) => c.id === selectedId)
+
+  const onKeyDown = (e: React.KeyboardEvent, i: number): void => {
+    let next = -1
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % choices.length
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + choices.length) % choices.length
+    if (next < 0) return
+    e.preventDefault()
+    onSelect(choices[next])
+    document.getElementById(`voice-${choices[next].id}`)?.focus()
+  }
+
+  return (
+    <div role="radiogroup" aria-label={label}>
+      <div className="mb-1.5 flex items-baseline gap-2">
+        <span className="text-xs font-semibold text-fg">{label}</span>
+        <span className="text-[10px] text-fg-muted">{hint}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+        {choices.map((c, i) => {
+          const active = c.id === selectedId
+          // Roving tabindex: the selected chip is the tab stop; if none selected, the first.
+          const isTabStop = active || (selectedIdx === -1 && i === 0)
+          return (
+            <button
+              key={c.id}
+              id={`voice-${c.id}`}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={`${c.name} — ${c.vibe}`}
+              tabIndex={isTabStop ? 0 : -1}
+              disabled={disabled}
+              onClick={() => onSelect(c)}
+              onKeyDown={(e) => onKeyDown(e, i)}
+              className={`flex flex-col items-start rounded-lg border px-2.5 py-1.5 text-left transition-colors disabled:opacity-50 ${
+                active ? 'border-accent bg-accent/10' : 'border-border bg-bg hover:border-border-strong'
+              }`}
+            >
+              <span className="text-sm font-medium text-fg">{c.name}</span>
+              <span className="truncate text-[10px] text-fg-muted">{c.vibe}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function LogoutButton({ onLogout }: { onLogout: () => void }): JSX.Element {
   const [confirm, setConfirm] = useState(false)
   useEffect(() => {
@@ -679,7 +709,7 @@ function LogoutButton({ onLogout }: { onLogout: () => void }): JSX.Element {
       onClick={() => (confirm ? onLogout() : setConfirm(true))}
       className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-fg-muted hover:text-fg"
     >
-      <LogOut size={14} /> {confirm ? 'Click to confirm' : 'Log out'}
+      <LogOut size={14} /> {confirm ? 'กดอีกครั้งเพื่อยืนยัน' : 'ออกจากระบบ'}
     </button>
   )
 }

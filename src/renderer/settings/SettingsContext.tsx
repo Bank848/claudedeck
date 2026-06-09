@@ -49,6 +49,10 @@ export interface Settings {
   highContrast: boolean
   /** Interface zoom. */
   uiScale: UiScale
+  /** Built-in screen-reader mode: announce view changes etc. via the live region + TTS. */
+  screenReaderMode: boolean
+  /** Id of the chosen voice in the unified catalog (e.g. "sys:miku", "edge:…", "miku:rvc"). */
+  voiceChoiceId: string
 }
 
 const DEFAULTS: Settings = {
@@ -63,7 +67,7 @@ const DEFAULTS: Settings = {
   voiceName: '',
   requireWakeWord: true,
   voiceLang: 'auto',
-  sttEngine: 'browser',
+  sttEngine: 'local',
   whisperModel: 'Xenova/whisper-base',
   ttsEngine: 'system',
   edgeVoice: 'th-TH-PremwadeeNeural',
@@ -74,6 +78,8 @@ const DEFAULTS: Settings = {
   reduceMotion: false,
   highContrast: false,
   uiScale: 'normal',
+  screenReaderMode: false,
+  voiceChoiceId: '',
 }
 
 const STORAGE_KEY = 'claudedeck.settings'
@@ -90,7 +96,11 @@ const SettingsContext = createContext<SettingsContextValue | null>(null)
 function load(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Settings>) }
+    if (raw) {
+      const merged = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Settings>) }
+      // STT is fixed to local Whisper Base (the picker was removed for simplicity).
+      return { ...merged, sttEngine: 'local', whisperModel: 'Xenova/whisper-base' }
+    }
   } catch {
     /* ignore corrupt storage */
   }
@@ -114,7 +124,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }): J
     const root = document.documentElement
     root.classList.toggle('force-reduce-motion', settings.reduceMotion)
     root.classList.toggle('high-contrast', settings.highContrast)
-    root.style.setProperty('zoom', String(ZOOM[settings.uiScale]))
+    // Scale the root font-size (rem base) instead of CSS `zoom`. `zoom` scaled the
+    // whole shell past the viewport and clipped the right/bottom edges at "large";
+    // font-size grows only rem-based content inside its own scroll regions.
+    const scale = ZOOM[settings.uiScale]
+    root.style.removeProperty('zoom') // clear any value persisted by older builds
+    root.style.fontSize = scale === 1 ? '' : `${16 * scale}px`
   }, [settings.reduceMotion, settings.highContrast, settings.uiScale])
 
   // Publish TTS engine config to the routing layer.

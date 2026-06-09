@@ -36,6 +36,70 @@ export function useAudioInputs(): { inputs: AudioInput[]; refresh: () => Promise
 }
 
 /**
+ * Record a short mic clip and play it straight back. A visual level meter is
+ * useless to a blind user (our primary audience), so the real confirmation is
+ * audible: record → stop → hear yourself. Playback (not live monitoring) avoids
+ * the speaker→mic feedback howl.
+ */
+export function useMicMonitor(deviceId: string): {
+  recording: boolean
+  start: () => Promise<void>
+  stopAndPlay: () => void
+} {
+  const [recording, setRecording] = useState(false)
+  const recRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const streamRef = useRef<MediaStream | null>(null)
+
+  const start = useCallback(async () => {
+    if (recRef.current) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      })
+      streamRef.current = stream
+      const rec = new MediaRecorder(stream)
+      chunksRef.current = []
+      rec.ondataavailable = (e) => {
+        if (e.data.size) chunksRef.current.push(e.data)
+      }
+      rec.onstop = () => {
+        streamRef.current?.getTracks().forEach((t) => t.stop())
+        streamRef.current = null
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' })
+        if (blob.size) {
+          const url = URL.createObjectURL(blob)
+          const audio = new Audio(url)
+          audio.onended = () => URL.revokeObjectURL(url)
+          void audio.play().catch(() => URL.revokeObjectURL(url))
+        }
+      }
+      rec.start()
+      recRef.current = rec
+      setRecording(true)
+    } catch {
+      /* permission denied / no device */
+    }
+  }, [deviceId])
+
+  const stopAndPlay = useCallback(() => {
+    recRef.current?.stop() // onstop builds the clip and plays it back
+    recRef.current = null
+    setRecording(false)
+  }, [])
+
+  useEffect(
+    () => () => {
+      recRef.current?.stop()
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+    },
+    [],
+  )
+
+  return { recording, start, stopAndPlay }
+}
+
+/**
  * Live mic level (0–1) while `active`, for the chosen device — lets the user
  * confirm their microphone is picking up sound before testing voice commands.
  */

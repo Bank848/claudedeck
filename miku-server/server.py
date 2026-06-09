@@ -59,17 +59,20 @@ INDEX_RATE = float(os.environ.get("RVC_INDEX_RATE", "0.5"))
 # more frames per phoneme → clearer words. "" / "+0%" = natural speed.
 BASE_RATE = os.environ.get("RVC_BASE_RATE", "-10%")
 
-# Per-language voice tuning (A/B-verified by ear on MikuAI v2). The Thai base voice
-# sits ~6 semitones below the English base, so each language gets its own pitch to
-# land in the same pleasant Miku-alto F0 zone (~258 Hz). Thai is tonal → a larger
-# filter_radius steadies the tones (less warble); English uses a lower protect for
-# crisper consonants. Override any field via the matching env var.
+# Per-language voice tuning (A/B-verified by ear on MikuAI v2). Both languages now use
+# an English-base multilingual edge-tts voice (Ava) — it reads Thai clearly and far more
+# naturally than the th-TH "assistant/news-reader" neural voices, and being English-base
+# it already sits near the Miku-alto F0 zone, so Thai no longer needs a big pitch offset.
+# We keep the base voice at +0Hz (no edge-tts pitch) and do ALL youthening at the RVC
+# stage — pre-pitching the base then pitching again in RVC stacks artifacts.
+# Thai is tonal → a larger filter_radius steadies the tones (less warble); English uses a
+# lower protect for crisper consonants. Override any field via the matching env var.
 #   protect 0–0.5: lower keeps more clear original consonants (0.5 disables it).
 #   pitch: semitones up from the base voice.   filter: median window on the pitch.
 LANG = {
     "th": {
-        "voice":   os.environ.get("BASE_VOICE_TH") or os.environ.get("BASE_VOICE", "th-TH-PremwadeeNeural"),
-        "pitch":   int(os.environ.get("RVC_PITCH_TH", "4")),
+        "voice":   os.environ.get("BASE_VOICE_TH") or os.environ.get("BASE_VOICE", "en-US-AvaMultilingualNeural"),
+        "pitch":   int(os.environ.get("RVC_PITCH_TH", "3")),
         "protect": float(os.environ.get("RVC_PROTECT_TH", "0.33")),
         "filter":  int(os.environ.get("RVC_FILTER_TH", "5")),
     },
@@ -125,10 +128,12 @@ def _startup() -> None:
 
 
 def _mp3_to_16k_mono(path: str) -> np.ndarray:
-    seg = AudioSegment.from_file(path).set_channels(1).set_frame_rate(16000)
-    samples = np.array(seg.get_array_of_samples()).astype(np.float32)
-    peak = float(1 << (8 * seg.sample_width - 1))
-    return samples / peak
+    # High-quality 24k→16k resample (soxr_hq) preserves Thai consonant clarity far
+    # better than pydub's crude set_frame_rate; librosa.load uses soxr by default.
+    import librosa
+
+    wav = librosa.load(path, sr=16000, mono=True, res_type="soxr_hq")[0]
+    return wav.astype(np.float32)
 
 
 def _int16_to_mp3(audio: np.ndarray, sr: int) -> bytes:
