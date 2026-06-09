@@ -124,7 +124,17 @@ def _startup() -> None:
     for lang, c in LANG.items():
         logger.info("  [%s] voice=%s pitch=%s protect=%s filter=%s",
                     lang, c["voice"], c["pitch"], c["protect"], c["filter"])
-    threading.Thread(target=_load_engine, daemon=True).start()
+    # Load the engine in the MAIN thread (synchronous, blocking startup).
+    #
+    # The heavy init touches CUDA + faiss (which pulls in its own OpenMP runtime).
+    # When that ran inside a daemon Thread alongside uvicorn's asyncio event loop
+    # on the main thread, the process reliably segfaulted (exit 139) the instant
+    # the loader thread finished — torch/CUDA + OpenMP do not survive being
+    # initialized off the main thread while another runtime owns the main loop.
+    # Loading synchronously here costs ~18 s of startup latency (the client sees
+    # connection-refused until ready, and ClaudeDeck already tracks readiness via
+    # the process, not HTTP) but the process stays alive and serves requests.
+    _load_engine()
 
 
 def _mp3_to_16k_mono(path: str) -> np.ndarray:
@@ -143,6 +153,24 @@ def _int16_to_mp3(audio: np.ndarray, sr: int) -> bytes:
     return seg.export(format="mp3").read()
 
 
+def _edge_save(text: str, voice: str, out_path: str, kwargs: dict,
+               attempts: int = 3) -> None:
+    """Run edge-tts with retries on the transient NoAudioReceived failure."""
+    last = None
+    for i in range(attempts):
+        try:
+            asyncio.run(edge_tts.Communicate(text, voice, **kwargs).save(out_path))
+            if os.path.getsize(out_path) > 0:
+                return
+            last = RuntimeError("edge-tts wrote an empty file")
+        except edge_tts.exceptions.NoAudioReceived as e:
+            last = e
+            logger.warning("edge-tts NoAudioReceived (attempt %d/%d), retrying…",
+                           i + 1, attempts)
+        time.sleep(0.6 * (i + 1))
+    raise last if last else RuntimeError("edge-tts failed")
+
+
 def synth(text: str) -> bytes:
     lang = _lang_of(text)
     cfg = LANG[lang]
@@ -152,7 +180,11 @@ def synth(text: str) -> bytes:
         #    picked per detected language; slowing the base rate improves clarity.
         kwargs = {"rate": BASE_RATE} if BASE_RATE and BASE_RATE != "+0%" else {}
         t0 = time.perf_counter()
-        asyncio.run(edge_tts.Communicate(text, cfg["voice"], **kwargs).save(base_mp3))
+        # edge-tts intermittently returns NoAudioReceived (Microsoft endpoint
+        # hiccup / token rotation). A bare failure makes ClaudeDeck fall back to
+        # the system voice, which reads as "Miku server does nothing". Retry a few
+        # times before giving up so transient blips don't surface to the user.
+        _edge_save(text, cfg["voice"], base_mp3, kwargs)
         audio16k = _mp3_to_16k_mono(base_mp3)
         t1 = time.perf_counter()
         # 2) RVC convert → Miku timbre (per-language pitch/protect/filter)
@@ -176,6 +208,7 @@ def synth(text: str) -> bytes:
         return mp3
 
 
+@app.get("/health")
 @app.get("/v1/health")
 def health():
     return {
