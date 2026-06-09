@@ -23,14 +23,19 @@ export function cancelTurn(turnId: string): void {
   void bridge()?.cancelTurn(turnId)
 }
 
-/** Answer a mid-turn tool-permission request for this turn. */
-export function respondPermission(
+/**
+ * Answer a mid-turn tool-permission request for this turn. Resolves to the
+ * main-process result: `ok:false` means the turn was already gone (its stdin was
+ * closed) so the decision could not be delivered — the caller must surface that
+ * rather than assume success (#1). No bridge → `ok:false` too.
+ */
+export async function respondPermission(
   turnId: string,
   id: string,
   decision: PermissionDecision,
   opts?: { input?: unknown; message?: string },
-): void {
-  void bridge()?.respondPermission(turnId, id, decision, opts)
+): Promise<{ ok: boolean }> {
+  return (await bridge()?.respondPermission(turnId, id, decision, opts)) ?? { ok: false }
 }
 
 export interface TurnHandlers {

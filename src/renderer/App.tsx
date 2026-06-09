@@ -35,6 +35,7 @@ import * as sessionsClient from '@/state/sessionsClient'
 import { contextPct, contextTokensOf, crossed80 } from '@/settings/contextWindow'
 import type { ComposerHandle } from '@/views/chat/Composer'
 import * as claudeClient from '@/cli/claudeClient'
+import { permissionResponseOutcome } from '@/cli/permissionOutcome'
 import type { Effort, PermissionMode, ClaudeEvent, PermissionSettings, PermissionRequestMsg } from '@/cli/types'
 import { loadPermissions, savePermissions } from '@/settings/permissionRules'
 import { PermissionPrompt } from '@/views/chat/PermissionPrompt'
@@ -588,12 +589,18 @@ export default function App(): JSX.Element {
       })
   }
 
-  // Answer the head-of-queue permission request, then dequeue it.
-  const decidePermission = (decision: 'allow' | 'deny'): void => {
+  // Answer the head-of-queue permission request, then dequeue it. If the turn was
+  // already gone the response can't be delivered (ok:false) — clear the stale head
+  // anyway and SAY so, instead of failing in total silence (#1, a11y).
+  const decidePermission = async (decision: 'allow' | 'deny'): Promise<void> => {
     const req = permissionQueue[0]
     if (!req) return
-    claudeClient.respondPermission(req.turnId, req.id, decision, decision === 'allow' ? { input: req.input } : undefined)
-    setPermissionQueue((q) => q.slice(1))
+    const { ok } = await claudeClient.respondPermission(
+      req.turnId, req.id, decision, decision === 'allow' ? { input: req.input } : undefined,
+    )
+    const outcome = permissionResponseOutcome(ok)
+    if (outcome.dequeue) setPermissionQueue((q) => q.slice(1))
+    if (outcome.expired) speakStatus(say(STATUS.expired))
   }
   // Allow now AND persist the tool to the allow list so it never asks again.
   const alwaysAllowPermission = (): void => {
@@ -601,7 +608,7 @@ export default function App(): JSX.Element {
     if (!req) return
     const allow = permissions.allow ?? []
     if (!allow.includes(req.tool)) updatePermissions({ ...permissions, allow: [...allow, req.tool] })
-    decidePermission('allow')
+    void decidePermission('allow')
   }
 
   // ── Session tab lifecycle (new / close / reopen-with-history) ─────────────

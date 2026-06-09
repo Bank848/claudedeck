@@ -34,11 +34,18 @@ export const VIEW_NAMES: Record<ActivityId, LangPair> = {
 }
 
 /** Turn-status lines spoken on every send/result — the highest-frequency phrases. */
-export const STATUS: Record<'thinking' | 'done' | 'error' | 'busy', LangPair> = {
+export const STATUS: Record<
+  'thinking' | 'done' | 'error' | 'busy' | 'expired' | 'stopped',
+  LangPair
+> = {
   thinking: { th: 'กำลังคิด', en: 'Thinking' },
   done: { th: 'เสร็จแล้ว', en: 'Done' },
   error: { th: 'เกิดข้อผิดพลาด', en: 'Error' },
   busy: { th: 'กำลังทำงานอยู่ รอสักครู่', en: 'Still working, please wait' },
+  // Spoken when an Allow/Deny lands on a turn that already ended (#1).
+  expired: { th: 'คำขอนี้หมดอายุแล้ว', en: 'Request expired' },
+  // Spoken when the user stops a running turn from the composer / by voice (#2).
+  stopped: { th: 'หยุดแล้ว', en: 'Stopped' },
 }
 
 /** The greeting spoken when the voice assistant turns on. */
