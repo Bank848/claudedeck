@@ -33,3 +33,17 @@ miku-server/*.log
 miku-server/miku_*.mp3
 __pycache__/
 *.pyc
+
+# Throwaway spike / debug artifacts
+sp2_*.txt
+spike_*.txt
+.claude/*.lock
+# miku-server spike fixtures (NOT the committed _tune*.py / _analyze.py / _bench.py harnesses)
+miku-server/_drone_fix*.py
+miku-server/_dronefix*/
+miku-server/_endpoint_test.mp3
+miku-server/_f5_constraint.txt
+miku-server/_mikudemo/
+miku-server/_premwadee_test/
+miku-server/_thaibase/
+miku-server/_voicetest*/
