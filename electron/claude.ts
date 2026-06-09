@@ -11,6 +11,7 @@ import {
   isResultEvent,
   isControlFrame,
   type PermissionDecision,
+  type ControlRequest,
 } from './permissionProtocol'
 
 export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default' | 'auto' | 'dontAsk'
@@ -63,6 +64,36 @@ export function cleanRules(rules: readonly string[] | undefined): string[] {
  */
 export function toCliEffort(e?: string): Effort | undefined {
   return e && (EFFORT_LEVELS as readonly string[]).includes(e) ? (e as Effort) : undefined
+}
+
+/**
+ * What a single stream-json line means. Extracting this from the stdout loop lets
+ * the SAME interpretation run on the trailing partial line at `exit` — on an
+ * abnormal CLI crash the final (e.g. `result`, which carries usage/cost) line can
+ * arrive without a closing newline, and was silently dropped before (#3).
+ */
+export type LineAction =
+  | { kind: 'stderr'; text: string }
+  | { kind: 'permission'; req: ControlRequest }
+  | { kind: 'drop' }
+  | { kind: 'event'; event: unknown; isResult: boolean }
+
+export function classifyLine(raw: string): LineAction | null {
+  const line = raw.trim()
+  if (!line) return null
+  let event: unknown
+  try {
+    event = JSON.parse(line)
+  } catch {
+    // Malformed line → surface to the terminal log, never throw.
+    return { kind: 'stderr', text: line }
+  }
+  // A tool needs permission → ask the renderer; do NOT forward as a normal event.
+  const req = parseControlRequest(event)
+  if (req) return { kind: 'permission', req }
+  // The CLI's own control frames (initialize response, etc.) are protocol noise.
+  if (isControlFrame(event)) return { kind: 'drop' }
+  return { kind: 'event', event, isResult: isResultEvent(event) }
 }
 
 const turns = new Map<string, ChildProcess>()
@@ -183,39 +214,44 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
   proc.stdin?.write(buildInitialize() + '\n', 'utf8')
   proc.stdin?.write(buildUserMessage(a.prompt) + '\n', 'utf8')
 
+  // Dispatch one interpreted line to the renderer (and close stdin on result).
+  const apply = (action: LineAction | null): void => {
+    if (!action) return
+    switch (action.kind) {
+      case 'stderr':
+        safeSend(win, 'claude:stderr', { turnId: a.turnId, text: action.text })
+        break
+      case 'permission':
+        safeSend(win, 'claude:permission-request', { turnId: a.turnId, ...action.req })
+        break
+      case 'drop':
+        break
+      case 'event':
+        safeSend(win, 'claude:event', { turnId: a.turnId, event: action.event })
+        // Turn done: close stdin so the CLI shuts down cleanly.
+        if (action.isResult) proc.stdin?.end()
+        break
+    }
+  }
+
   let buf = ''
   proc.stdout?.on('data', (d) => {
     buf += String(d)
     let nl: number
     while ((nl = buf.indexOf('\n')) !== -1) {
-      const line = buf.slice(0, nl).trim()
+      const line = buf.slice(0, nl)
       buf = buf.slice(nl + 1)
-      if (!line) continue
-      let event: unknown
-      try {
-        event = JSON.parse(line)
-      } catch {
-        // Malformed line → surface to the terminal log, never throw.
-        safeSend(win, 'claude:stderr', { turnId: a.turnId, text: line })
-        continue
-      }
-      // A tool needs permission → ask the renderer; do NOT forward as a normal event.
-      const req = parseControlRequest(event)
-      if (req) {
-        safeSend(win, 'claude:permission-request', { turnId: a.turnId, ...req })
-        continue
-      }
-      // The CLI's own control frames (initialize response, etc.) are protocol
-      // noise — keep them out of the renderer's event stream.
-      if (isControlFrame(event)) continue
-      safeSend(win, 'claude:event', { turnId: a.turnId, event })
-      // Turn done: close stdin so the CLI shuts down cleanly.
-      if (isResultEvent(event)) proc.stdin?.end()
+      apply(classifyLine(line))
     }
   })
   proc.stderr?.on('data', (d) => safeSend(win,'claude:stderr', { turnId: a.turnId, text: String(d) }))
   proc.on('error', (e) => safeSend(win,'claude:stderr', { turnId: a.turnId, text: e.message }))
   proc.on('exit', (code) => {
+    // Flush any trailing line the stream never newline-terminated. On an abnormal
+    // exit the final result/usage line can lack its closing '\n' — process it the
+    // same way so that turn's cost isn't lost (#3).
+    if (buf.trim()) apply(classifyLine(buf))
+    buf = ''
     turns.delete(a.turnId)
     safeSend(win,'claude:done', { turnId: a.turnId, code: code ?? -1 })
   })

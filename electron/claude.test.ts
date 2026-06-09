@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildArgs, toCliModel, toCliEffort, pickCwd } from './claude'
+import { buildArgs, toCliModel, toCliEffort, pickCwd, classifyLine } from './claude'
 import type { StartTurnArgs } from './claude'
 
 const base: StartTurnArgs = {
@@ -150,6 +150,55 @@ describe('buildArgs', () => {
     const args = buildArgs({ ...base, prompt: nasty })
     expect(args).not.toContain(nasty)
     expect(args.some((t) => t.includes('calc') || t.includes('&'))).toBe(false)
+  })
+})
+
+describe('classifyLine (#3 — one place to interpret a stream-json line)', () => {
+  it('returns null for blank / whitespace-only lines', () => {
+    expect(classifyLine('')).toBeNull()
+    expect(classifyLine('   ')).toBeNull()
+    expect(classifyLine('\t')).toBeNull()
+  })
+
+  it('routes malformed JSON to stderr (never throws)', () => {
+    expect(classifyLine('not json {')).toEqual({ kind: 'stderr', text: 'not json {' })
+  })
+
+  it('extracts a can_use_tool control request as a permission action', () => {
+    const line = JSON.stringify({
+      type: 'control_request',
+      request_id: 'req-7',
+      request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'ls' } },
+    })
+    const action = classifyLine(line)
+    expect(action?.kind).toBe('permission')
+    if (action?.kind === 'permission') {
+      expect(action.req).toEqual({ id: 'req-7', tool: 'Bash', input: { command: 'ls' }, toolUseId: undefined })
+    }
+  })
+
+  it('drops the CLI’s own control frames (e.g. initialize response)', () => {
+    const line = JSON.stringify({ type: 'control_response', response: { subtype: 'success' } })
+    expect(classifyLine(line)).toEqual({ kind: 'drop' })
+  })
+
+  it('forwards a normal event with isResult=false', () => {
+    const line = JSON.stringify({ type: 'assistant', message: { content: [] } })
+    const action = classifyLine(line)
+    expect(action?.kind).toBe('event')
+    if (action?.kind === 'event') expect(action.isResult).toBe(false)
+  })
+
+  it('marks the result event so the caller can close stdin / knows it is the final line', () => {
+    // The exact line that abnormal exits can drop (no trailing newline) — usage/cost
+    // lives here, so the exit-flush MUST be able to recover it.
+    const line = JSON.stringify({ type: 'result', is_error: false, usage: { output_tokens: 5 } })
+    const action = classifyLine(line)
+    expect(action?.kind).toBe('event')
+    if (action?.kind === 'event') {
+      expect(action.isResult).toBe(true)
+      expect(action.event).toMatchObject({ type: 'result' })
+    }
   })
 })
 
