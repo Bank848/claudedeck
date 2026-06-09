@@ -5,7 +5,11 @@ node_modules/
 out/
 dist/
 dist-electron/
+release/
 *.tsbuildinfo
+
+# Local dev launcher stub (not a distributable build)
+ClaudeDeck.exe
 
 # Logs
 *.log
