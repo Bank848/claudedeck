@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { MarkdownContent } from './MarkdownContent'
 import type { ChatMessage } from '@/mock/fixtures'
 
@@ -13,7 +14,9 @@ function formatTime(iso: string): string {
   }
 }
 
-export function UserMessage({ message }: UserMessageProps): JSX.Element {
+// memo: see AssistantMessage — message identity is stable once sent, so user
+// bubbles never need to re-render during a streaming turn.
+export const UserMessage = memo(function UserMessage({ message }: UserMessageProps): JSX.Element {
   return (
     <div className="flex justify-end mb-4">
       <div className="flex flex-col items-end gap-1 max-w-[80%]">
@@ -31,4 +34,4 @@ export function UserMessage({ message }: UserMessageProps): JSX.Element {
       </div>
     </div>
   )
-}
+})

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Sparkles } from 'lucide-react'
 import { MarkdownContent } from './MarkdownContent'
 import { CodeBlock } from './CodeBlock'
@@ -34,7 +35,10 @@ function speakableText(message: ChatMessage): string {
   )
 }
 
-export function AssistantMessage({ message }: AssistantMessageProps): JSX.Element {
+// memo: the sessions reducer replaces only the streaming message object per
+// stream event (others keep reference identity), so completed messages skip
+// re-render — and re-parsing markdown / re-highlighting code — on every token.
+export const AssistantMessage = memo(function AssistantMessage({ message }: AssistantMessageProps): JSX.Element {
   const parts = message.parts
 
   return (
@@ -80,4 +84,4 @@ export function AssistantMessage({ message }: AssistantMessageProps): JSX.Elemen
       </div>
     </div>
   )
-}
+})
