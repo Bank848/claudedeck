@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { cancelSpeech } from './speech'
 import { setTtsConfig } from './tts'
 
@@ -93,31 +93,81 @@ interface SettingsContextValue {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null)
 
+// Merge a stored (partial) settings object over DEFAULTS and apply the fixed-field
+// coercions. STT is pinned to local Whisper Base (the picker was removed for simplicity).
+function withDefaults(partial: Partial<Settings>): Settings {
+  return { ...DEFAULTS, ...partial, sttEngine: 'local', whisperModel: 'Xenova/whisper-base' }
+}
+
+// Synchronous localStorage read for instant first paint (origin-keyed fast cache).
+// The durable store is disk (via the main process); see SettingsProvider hydration.
 function load(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const merged = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Settings>) }
-      // STT is fixed to local Whisper Base (the picker was removed for simplicity).
-      return { ...merged, sttEngine: 'local', whisperModel: 'Xenova/whisper-base' }
-    }
+    if (raw) return withDefaults(JSON.parse(raw) as Partial<Settings>)
   } catch {
     /* ignore corrupt storage */
   }
   return DEFAULTS
 }
 
+const DISK_DEBOUNCE_MS = 400
+
 export function SettingsProvider({ children }: { children: React.ReactNode }): JSX.Element {
   const [settings, setSettings] = useState<Settings>(load)
 
-  // Persist.
+  // Disk is the durable store; localStorage is only a synchronous fast-cache. Don't
+  // write to disk until the initial disk load resolves, or default/cached values
+  // would clobber the persisted file before we've read it. (Mirrors App.tsx sessions.)
+  const hydratedRef = useRef(false)
+  useEffect(() => {
+    const api = window.claudedeck?.settings
+    if (!api) {
+      // No bridge (vitest / web preview): localStorage-only, persist immediately.
+      hydratedRef.current = true
+      return
+    }
+    void api.load().then((stored) => {
+      if (stored) {
+        // Disk wins.
+        setSettings(withDefaults(stored as Partial<Settings>))
+      } else if (localStorage.getItem(STORAGE_KEY) != null) {
+        // First run after the localStorage→disk migration: seed disk from the cache.
+        void api.save(settings as unknown as Record<string, unknown>)
+      }
+      hydratedRef.current = true
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Persist: localStorage synchronously (fast cache), disk debounced (durable).
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
     } catch {
       /* ignore */
     }
+    if (!hydratedRef.current) return
+    const api = window.claudedeck?.settings
+    if (!api) return
+    const t = setTimeout(() => {
+      void api.save(settings as unknown as Record<string, unknown>)
+    }, DISK_DEBOUNCE_MS)
+    return () => clearTimeout(t)
   }, [settings])
+
+  // Quit-flush: the debounce can drop the final change if the app closes right after
+  // it. Flush un-debounced to disk on unload. (Mirrors App.tsx sessions.)
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
+  useEffect(() => {
+    const flush = (): void => {
+      const api = window.claudedeck?.settings
+      if (hydratedRef.current && api) void api.save(settingsRef.current as unknown as Record<string, unknown>)
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [])
 
   // Apply document-level effects.
   useEffect(() => {

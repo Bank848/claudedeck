@@ -10,6 +10,7 @@ import type { PermissionDecision } from './permissionProtocol'
 import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from './auth'
 import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd } from './git'
 import { loadIndex, saveIndex, readTranscript, type StoredSession } from './sessionStore'
+import { loadSettings, saveSettings } from './settingsStore'
 import { safeSend } from './ipc'
 
 const isDev = !app.isPackaged
@@ -443,6 +444,10 @@ function registerIpc(): void {
   ipcMain.handle('sessions:load', () => loadIndex())
   ipcMain.handle('sessions:save', (_e, sessions: StoredSession[]) => { saveIndex(sessions); return { ok: true } })
   ipcMain.handle('sessions:transcript', (_e, uuid: string) => readTranscript(uuid))
+
+  // ── settings (disk-backed, origin-independent: survives Vite dev-port drift) ──
+  ipcMain.handle('settings:load', () => loadSettings())
+  ipcMain.handle('settings:save', (_e, s: Record<string, unknown>) => { saveSettings(s); return { ok: true } })
 }
 
 app.whenReady().then(() => {

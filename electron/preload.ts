@@ -132,6 +132,12 @@ const api = {
     transcript: (uuid: string): Promise<string | null> => ipcRenderer.invoke('sessions:transcript', uuid),
   },
 
+  /** Disk-backed settings persistence (origin-independent: survives Vite dev-port drift). */
+  settings: {
+    load: (): Promise<Record<string, unknown> | null> => ipcRenderer.invoke('settings:load'),
+    save: (s: Record<string, unknown>): Promise<{ ok: boolean }> => ipcRenderer.invoke('settings:save', s),
+  },
+
   /** In-app auth: login / logout / status (Approach B). */
   auth: {
     status: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:status'),
