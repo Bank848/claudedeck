@@ -114,3 +114,15 @@ describe('foldEvent', () => {
     expect(m0.parts).toHaveLength(0)
   })
 })
+
+describe('foldEvent result usage', () => {
+  it('returns usage with cache tokens on result', () => {
+    const msg = emptyAssistantMessage('a1', '2026-01-01T00:00:00Z')
+    const r = foldEvent(msg, {
+      type: 'result', session_id: 's', is_error: false,
+      usage: { input_tokens: 2, output_tokens: 684, cache_read_input_tokens: 102703, cache_creation_input_tokens: 742 },
+    } as never)
+    expect(r.finalized).toBe(true)
+    expect(r.usage).toEqual({ input: 2, output: 684, cacheRead: 102703, cacheCreation: 742 })
+  })
+})

@@ -52,14 +52,15 @@ export default function SessionsPanel({
   }
 
   return (
-    <ul className="space-y-1 px-2 py-1">
+    <ul role="listbox" aria-label="Sessions" className="space-y-1 px-2 py-1">
       {sessions.map((session) => {
         const isActive = session.id === activeSessionId
         return (
-          <li key={session.id}>
+          <li key={session.id} role="option" aria-selected={isActive}>
             <button
               type="button"
               onClick={() => onSelect(session.id)}
+              aria-label={`${session.title}, ${formatCwdBasename(session.cwd)}, ${session.model}, ${getRelativeTime(session.updatedAt)}`}
               className={`group relative flex w-full rounded-md px-2 py-1.5 text-left transition-colors ${
                 isActive
                   ? 'bg-surface-2'

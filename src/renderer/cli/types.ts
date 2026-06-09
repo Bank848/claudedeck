@@ -67,7 +67,27 @@ export interface ResultEvent {
   is_error?: boolean
   result?: string
   total_cost_usd?: number
-  usage?: { input_tokens?: number; output_tokens?: number }
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    /** Cache tokens still occupy the context window — required for an accurate context %. */
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+  }
+}
+
+/** Normalised token usage surfaced from a result event. */
+export interface TurnUsage {
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+}
+
+/** Renderer mirror of electron/sessionStore.ts StoredSession — keep the two in sync. */
+export interface StoredSession {
+  id: string; claudeSessionId?: string; cwd: string; title: string; model: string
+  tokens: number; contextTokens: number; updatedAt: string; createdAt: string; open: boolean
 }
 
 export type ClaudeEvent = SystemInitEvent | AssistantEvent | UserEvent | ResultEvent
@@ -77,10 +97,22 @@ export interface ClaudeEventMsg { turnId: string; event: ClaudeEvent }
 export interface ClaudeStderrMsg { turnId: string; text: string }
 export interface ClaudeDoneMsg { turnId: string; code: number }
 
-export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default'
+export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default' | 'auto' | 'dontAsk'
 
 /** Reasoning effort levels accepted by `claude --effort` (mirror electron/claude.ts). */
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+/**
+ * Persistent permission layer (mirror electron/permissions.ts PermissionSettings).
+ * Serialized to a single `--settings` JSON token in the main process.
+ */
+export interface PermissionSettings {
+  allow?: string[]
+  deny?: string[]
+  ask?: string[]
+  defaultMode?: string
+  additionalDirectories?: string[]
+}
 
 export interface StartTurnRequest {
   turnId: string
@@ -91,4 +123,14 @@ export interface StartTurnRequest {
   permissionMode: PermissionMode
   /** Optional reasoning effort. Omitted → the CLI picks its own default. */
   effort?: Effort
+  /** Per-turn tool allow rules (e.g. `Bash(git *)`, `Edit`). Each is one argv token. */
+  allowedTools?: string[]
+  /** Per-turn tool deny rules. Each is one argv token. */
+  disallowedTools?: string[]
+  /** Extra directories granted to claude this turn (`--add-dir`). */
+  additionalDirs?: string[]
+  /** Persistent permission settings, sent via `--settings`. */
+  settings?: PermissionSettings
+  /** Which config layers to load (`--setting-sources`). */
+  settingSources?: string
 }

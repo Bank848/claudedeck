@@ -1,11 +1,12 @@
 import type { ChatMessage, MessagePart, ToolCall } from '@/mock/fixtures'
-import type { ClaudeEvent, ContentBlock, ToolResultContent } from './types'
+import type { ClaudeEvent, ContentBlock, ToolResultContent, TurnUsage } from './types'
 
 export interface FoldResult {
   message: ChatMessage
   sessionId?: string
   finalized?: boolean
   errored?: boolean
+  usage?: TurnUsage
 }
 
 export function emptyAssistantMessage(id: string, createdAt: string): ChatMessage {
@@ -84,13 +85,16 @@ export function foldEvent(message: ChatMessage, event: ClaudeEvent): FoldResult 
       return { message: { ...message, parts }, sessionId: event.session_id }
     }
 
-    case 'result':
-      return {
-        message: { ...message, streaming: false },
-        sessionId: event.session_id,
-        finalized: true,
-        errored: !!event.is_error,
+    case 'result': {
+      const u = event.usage ?? {}
+      const usage: TurnUsage = {
+        input: u.input_tokens ?? 0,
+        output: u.output_tokens ?? 0,
+        cacheRead: u.cache_read_input_tokens ?? 0,
+        cacheCreation: u.cache_creation_input_tokens ?? 0,
       }
+      return { message: { ...message, streaming: false }, sessionId: event.session_id, finalized: true, errored: !!event.is_error, usage }
+    }
 
     default:
       return { message }
