@@ -104,6 +104,14 @@ export interface Session {
   terminalLines: TerminalLine[]
   /** claude CLI session id captured from the init event, used for --resume. */
   claudeSessionId?: string
+  /** Current context-window occupancy in tokens (input + cache). */
+  contextTokens?: number
+  /** True once the 80% context warning has been announced (reset when it drops). */
+  contextAnnounced?: boolean
+  /** ISO creation time (for the session list). */
+  createdAt?: string
+  /** Whether this session is an open tab (restored on boot). */
+  open?: boolean
 }
 
 /* ───────────────────────────────── Todos ───────────────────────────────────── */

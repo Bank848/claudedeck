@@ -1,6 +1,8 @@
 import type { ChatMessage, Session, TerminalLine } from '@/mock/fixtures'
 import { foldEvent } from '@/cli/streamMapper'
 import type { ClaudeEvent } from '@/cli/types'
+import type { StoredSession, TurnUsage } from '@/cli/types'
+import { contextTokensOf } from '@/settings/contextWindow'
 
 const MAX_TERMINAL_LINES = 500
 
@@ -14,6 +16,12 @@ export type SessionsAction =
   | { type: 'terminal'; sessionId: string; line: TerminalLine }
   | { type: 'finishTurn'; sessionId: string }
   | { type: 'setCwd'; sessionId: string; cwd: string }
+  | { type: 'createSession'; session: Session }
+  | { type: 'closeSession'; sessionId: string }
+  | { type: 'hydrate'; stored: StoredSession[] }
+  | { type: 'setTitle'; sessionId: string; title: string }
+  | { type: 'setUsage'; sessionId: string; usage: TurnUsage }
+  | { type: 'loadMessages'; sessionId: string; messages: ChatMessage[]; claudeSessionId?: string }
 
 /**
  * A blank, ready-to-type session. The app boots into one of these — no mock
@@ -22,17 +30,16 @@ export type SessionsAction =
  * fixtures. cwd '' lets the main process fall back to its real working dir.
  */
 export function emptySession(id: string): Session {
-  return {
-    id,
-    title: 'New session',
-    cwd: '',
-    status: 'idle',
-    model: 'opus-4-8',
-    updatedAt: new Date().toISOString(),
-    tokens: 0,
-    messages: [],
-    terminalLines: [],
-  }
+  const now = new Date().toISOString()
+  return { id, title: 'New session', cwd: '', status: 'idle', model: 'opus-4-8', updatedAt: now, createdAt: now, open: true, tokens: 0, contextTokens: 0, messages: [], terminalLines: [] }
+}
+
+export function toStored(s: Session): StoredSession {
+  return { id: s.id, claudeSessionId: s.claudeSessionId, cwd: s.cwd, title: s.title, model: s.model, tokens: s.tokens, contextTokens: s.contextTokens ?? 0, updatedAt: s.updatedAt, createdAt: s.createdAt ?? s.updatedAt, open: s.open ?? true }
+}
+
+export function fromStored(s: StoredSession): Session {
+  return { id: s.id, claudeSessionId: s.claudeSessionId, cwd: s.cwd, title: s.title, status: 'idle', model: s.model, tokens: s.tokens, contextTokens: s.contextTokens, updatedAt: s.updatedAt, createdAt: s.createdAt, open: s.open, messages: [], terminalLines: [] }
 }
 
 export function initialSessionsState(): SessionsState {
@@ -77,6 +84,29 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
 
     case 'setCwd':
       return patchSession(state, action.sessionId, (s) => ({ ...s, cwd: action.cwd }))
+
+    case 'createSession':
+      return { sessions: [...state.sessions, action.session] }
+
+    case 'closeSession':
+      return { sessions: state.sessions.filter((s) => s.id !== action.sessionId) }
+
+    case 'hydrate':
+      return { sessions: action.stored.map(fromStored) }
+
+    case 'setTitle':
+      return patchSession(state, action.sessionId, (s) => ({ ...s, title: action.title, updatedAt: new Date().toISOString() }))
+
+    case 'loadMessages':
+      return patchSession(state, action.sessionId, (s) => ({ ...s, messages: action.messages, claudeSessionId: action.claudeSessionId ?? s.claudeSessionId }))
+
+    case 'setUsage':
+      return patchSession(state, action.sessionId, (s) => ({
+        ...s,
+        tokens: s.tokens + action.usage.output,
+        contextTokens: contextTokensOf(action.usage),
+        updatedAt: new Date().toISOString(),
+      }))
 
     default:
       return state
