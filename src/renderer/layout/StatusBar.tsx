@@ -1,6 +1,7 @@
 import { Cpu, Coins, Dot } from 'lucide-react'
 import type { Session } from '@/mock/fixtures'
 import type { PermissionMode } from '@/cli/types'
+import { windowFor } from '@/settings/contextWindow'
 import { FooterPickers } from './FooterPickers'
 
 interface StatusBarProps {
@@ -19,6 +20,8 @@ const PERMISSION_LABELS: Record<PermissionMode, string> = {
   acceptEdits: 'Accept edits',
   bypassPermissions: 'Bypass',
   default: 'Default',
+  auto: 'Auto',
+  dontAsk: "Don't ask",
 }
 
 export function StatusBar({
@@ -66,6 +69,11 @@ export function StatusBar({
           <Coins size={12} />
           {session.tokens.toLocaleString()} tok
         </span>
+        {typeof session.contextTokens === 'number' && session.contextTokens > 0 && (
+          <span className="flex items-center gap-1.5 font-mono" title="Context window used">
+            {Math.round((session.contextTokens / windowFor(session.model)) * 100)}% ctx
+          </span>
+        )}
       </div>
     </footer>
   )

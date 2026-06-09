@@ -6,6 +6,8 @@ import { useVoiceCommands, dispatchCommand, type VoiceCommand } from '@/settings
 import { useLocalVoice } from '@/settings/localVoice'
 import { plainSpeakableText, resolveLang } from '@/settings/speech'
 import { speakSmart, cancelSmart } from '@/settings/tts'
+import { VIEW_NAMES, STATUS, collectPrewarmPhrases } from '@/settings/prewarmPhrases'
+import { useMikuPrewarm } from '@/settings/mikuServer'
 import { VoiceControlIndicator } from '@/components/VoiceControlIndicator'
 
 import { TitleBar } from '@/layout/TitleBar'
@@ -28,10 +30,14 @@ import SettingsView from '@/views/settings/SettingsView'
 import { ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
 import { MODE_OPTIONS } from '@/settings/permissionModes'
 import { EFFORT_OPTIONS } from '@/settings/effortLevels'
-import { useSessions } from '@/state/useSessions'
+import { useSessions, emptySession, toStored } from '@/state/useSessions'
+import * as sessionsClient from '@/state/sessionsClient'
+import { contextPct, crossed80 } from '@/settings/contextWindow'
 import type { ComposerHandle } from '@/views/chat/Composer'
 import * as claudeClient from '@/cli/claudeClient'
-import type { Effort, PermissionMode, ClaudeEvent } from '@/cli/types'
+import type { Effort, PermissionMode, ClaudeEvent, PermissionSettings, PermissionRequestMsg } from '@/cli/types'
+import { loadPermissions, savePermissions } from '@/settings/permissionRules'
+import { PermissionPrompt } from '@/views/chat/PermissionPrompt'
 import { useAuth } from '@/cli/useAuth'
 import { LoginBanner } from '@/components/LoginBanner'
 
@@ -45,6 +51,15 @@ export default function App(): JSX.Element {
   const [claudeOk, setClaudeOk] = useState(false)
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('plan')
   const [liveStatus, setLiveStatus] = useState('')
+  // Persistent permission settings (P2/P3/P4) — curated once in Settings →
+  // Permissions, saved to localStorage, sent to the CLI via --settings.
+  const [permissions, setPermissions] = useState<PermissionSettings>(() => loadPermissions())
+  const updatePermissions = (next: PermissionSettings): void => {
+    setPermissions(next)
+    savePermissions(next)
+  }
+  // FIFO queue of mid-turn tool-permission requests; head is shown in a modal.
+  const [permissionQueue, setPermissionQueue] = useState<PermissionRequestMsg[]>([])
 
   // Probe for the claude CLI once.
   useEffect(() => {
@@ -65,6 +80,62 @@ export default function App(): JSX.Element {
     [sessions, activeSessionId],
   )
 
+  /* ── Session persistence: boot restore + debounced index save ───────────── */
+
+  // Don't persist until the first load completes, or we'd clobber the stored
+  // index with the transient boot session.
+  const hydratedRef = useRef(false)
+  useEffect(() => {
+    void sessionsClient.loadIndex().then(async (stored) => {
+      if (stored.length) {
+        sessionsDispatch({ type: 'hydrate', stored })
+        const active = stored.find((s) => s.open) ?? stored[0]
+        setActiveSessionId(active.id)
+        if (active.claudeSessionId) {
+          const jsonl = await sessionsClient.loadTranscript(active.claudeSessionId)
+          if (jsonl) {
+            const { parseTranscript } = await import('@/cli/transcriptParser')
+            sessionsDispatch({
+              type: 'loadMessages',
+              sessionId: active.id,
+              messages: parseTranscript(jsonl),
+              claudeSessionId: active.claudeSessionId,
+            })
+          }
+        }
+      } else {
+        // Fresh install (empty index): activeSessionId defaults to ACTIVE_SESSION_ID
+        // ('s1'), which has no matching session — point it at the boot session so a
+        // tab renders active. (Reviewer-flagged.)
+        setActiveSessionId(sessions[0].id)
+      }
+      hydratedRef.current = true
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Debounced persistence whenever sessions change post-hydration.
+  useEffect(() => {
+    if (!hydratedRef.current) return
+    const t = setTimeout(() => {
+      void sessionsClient.saveIndex(sessions.map(toStored))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [sessions])
+
+  // Quit-flush: the 400ms debounce can drop the final change if the app closes
+  // right after it. Flush un-debounced on unload. (Reviewer-flagged.) Keep a ref
+  // so the listener always sees the latest sessions without re-binding each render.
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
+  useEffect(() => {
+    const flush = (): void => {
+      if (hydratedRef.current) void sessionsClient.saveIndex(sessionsRef.current.map(toStored))
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [])
+
   /* ── Voice control for blind users ──────────────────────────────────────── */
 
   const cycleSession = (dir: 1 | -1): void =>
@@ -76,6 +147,8 @@ export default function App(): JSX.Element {
 
   const { code: voiceCode, short: lang } = resolveLang(settings.voiceLang)
   const th = lang === 'th'
+  /** Pick the active-language string from a {th,en} pair (shared phrase sets). */
+  const say = (p: { th: string; en: string }): string => (th ? p.th : p.en)
 
   // ── Barge-in support: know when Miku is talking + guard against self-echo ────
   // speakingRef = a read-aloud is in flight; spokenTextRef = its (normalized) text,
@@ -199,6 +272,16 @@ export default function App(): JSX.Element {
     confirm: '',
     label: '“help” / “ช่วยเหลือ”',
   }
+
+  // Prewarm the Miku TTS cache with the finite set of fixed assistant phrases the
+  // instant the local voice server is ready, so a blind user never waits on the
+  // first (cold) edge-tts + RVC render of each phrase. Only relevant with the
+  // custom (Miku) engine. The per-command `confirm` strings are passed straight
+  // from the live commands so the warmed text can't drift from the spoken text.
+  const prewarmList = collectPrewarmPhrases({
+    extraConfirms: [...commands, pauseCmd, resumeCmd, closeCmd].map((c) => c.confirm),
+  })
+  useMikuPrewarm(settings.ttsEngine === 'custom', prewarmList)
 
   // When paused, only resume/close are honoured; otherwise the full set.
   const liveCommands =
@@ -327,16 +410,8 @@ export default function App(): JSX.Element {
   }
 
   // ── Built-in screen-reader mode: announce view changes (live region + TTS) ──
-  const VIEW_NAMES: Record<ActivityId, { th: string; en: string }> = {
-    chat: { th: 'แชท', en: 'Chat' },
-    sessions: { th: 'เซสชัน', en: 'Sessions' },
-    tasks: { th: 'บอร์ดงาน', en: 'Tasks board' },
-    changes: { th: 'การเปลี่ยนแปลง', en: 'Changes' },
-    skills: { th: 'สกิล', en: 'Skills' },
-    usage: { th: 'การใช้งาน', en: 'Usage' },
-    guide: { th: 'คู่มือ', en: 'Guide' },
-    settings: { th: 'ตั้งค่า', en: 'Settings' },
-  }
+  // VIEW_NAMES lives in @/settings/prewarmPhrases so the spoken text and the
+  // Miku-prewarmed text share one source (no drift).
   // Skip announcing the initial mount; only speak on real navigations.
   const srMounted = useRef(false)
   useEffect(() => {
@@ -349,7 +424,7 @@ export default function App(): JSX.Element {
       return
     }
     const name = VIEW_NAMES[activity]
-    if (name) speakStatus(th ? name.th : name.en)
+    if (name) speakStatus(say(name))
     // speakStatus intentionally excluded: avoid re-announcing on unrelated re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activity, settings.screenReaderMode])
@@ -361,7 +436,7 @@ export default function App(): JSX.Element {
         speakStatus(th ? `กำลังใช้ ${tool.name}` : `Running ${tool.name}`)
       }
     } else if (event.type === 'result') {
-      speakStatus(event.is_error ? (th ? 'เกิดข้อผิดพลาด' : 'Error') : (th ? 'เสร็จแล้ว' : 'Done'))
+      speakStatus(say(event.is_error ? STATUS.error : STATUS.done))
     }
   }
 
@@ -388,7 +463,7 @@ export default function App(): JSX.Element {
     // B4: ignore a second send while this session's turn is still streaming —
     // otherwise its events would fold into the wrong (newer) assistant message.
     if (activeSession.status === 'running') {
-      speakStatus(th ? 'กำลังทำงานอยู่ รอสักครู่' : 'Still working, please wait')
+      speakStatus(say(STATUS.busy))
       return
     }
     const now = new Date().toISOString()
@@ -414,12 +489,36 @@ export default function App(): JSX.Element {
     // event's spoken "Done" would otherwise cancel this mid-word (speakSmart does
     // not queue, system speak() cancels-then-speaks) → "กำลังค—เสร็จแล้ว". Proper
     // queueing/auto-read is Slice C; this is the band-aid for the cut-off.
-    setLiveStatus(th ? 'กำลังคิด' : 'Thinking')
+    setLiveStatus(say(STATUS.thinking))
 
     const turnId = nextId('turn')
     const off = claudeClient.subscribe(turnId, {
       onEvent: (event: ClaudeEvent) => {
         sessionsDispatch({ type: 'event', sessionId: sid, event })
+        // Capture real token usage + announce once when context crosses 80%.
+        if (event.type === 'result') {
+          const u = event.usage
+          const usage = {
+            input: u?.input_tokens ?? 0,
+            output: u?.output_tokens ?? 0,
+            cacheRead: u?.cache_read_input_tokens ?? 0,
+            cacheCreation: u?.cache_creation_input_tokens ?? 0,
+          }
+          // sessionsRef avoids the stale closure over `sessions` in handleSend.
+          const prev = sessionsRef.current.find((s) => s.id === sid)
+          const model = prev?.model ?? 'opus-4-8'
+          const prevPct = contextPct(prev?.contextTokens ?? 0, model)
+          const nextPct = contextPct(usage.input + usage.cacheRead + usage.cacheCreation, model)
+          sessionsDispatch({ type: 'setUsage', sessionId: sid, usage })
+          if (crossed80(prevPct, nextPct)) {
+            speakStatus(
+              say({
+                th: `ใช้ context ${Math.round(nextPct * 100)} เปอร์เซ็นต์แล้ว`,
+                en: `Context at ${Math.round(nextPct * 100)} percent`,
+              }),
+            )
+          }
+        }
         announceEvent(event)
         const summary = terminalSummary(event)
         if (summary) {
@@ -435,8 +534,14 @@ export default function App(): JSX.Element {
           line: { id: nextId('tl'), kind: 'stderr', text: textLine },
         })
       },
+      onPermission: (req) => {
+        setPermissionQueue((q) => [...q, req])
+        speakStatus(th ? `ขออนุญาตใช้ ${req.tool}` : `Permission needed: ${req.tool}`)
+      },
       onDone: () => {
         sessionsDispatch({ type: 'finishTurn', sessionId: sid })
+        // Drop any unanswered prompts for this finished turn.
+        setPermissionQueue((q) => q.filter((r) => r.turnId !== turnId))
         off()
       },
     })
@@ -445,6 +550,7 @@ export default function App(): JSX.Element {
       .startTurn({
         turnId, prompt: text, cwd: activeSession.cwd,
         sessionId: activeSession.claudeSessionId, model: modelId, permissionMode, effort,
+        settings: permissions,
       })
       .then((r) => {
         if (!r.ok) {
@@ -453,10 +559,62 @@ export default function App(): JSX.Element {
             line: { id: nextId('tl'), kind: 'stderr', text: r.error ?? 'failed to start claude' },
           })
           sessionsDispatch({ type: 'finishTurn', sessionId: sid })
-          speakStatus(th ? 'เกิดข้อผิดพลาด' : 'Error')
+          speakStatus(say(STATUS.error))
           off()
         }
       })
+  }
+
+  // Answer the head-of-queue permission request, then dequeue it.
+  const decidePermission = (decision: 'allow' | 'deny'): void => {
+    const req = permissionQueue[0]
+    if (!req) return
+    claudeClient.respondPermission(req.turnId, req.id, decision, decision === 'allow' ? { input: req.input } : undefined)
+    setPermissionQueue((q) => q.slice(1))
+  }
+  // Allow now AND persist the tool to the allow list so it never asks again.
+  const alwaysAllowPermission = (): void => {
+    const req = permissionQueue[0]
+    if (!req) return
+    const allow = permissions.allow ?? []
+    if (!allow.includes(req.tool)) updatePermissions({ ...permissions, allow: [...allow, req.tool] })
+    decidePermission('allow')
+  }
+
+  // ── Session tab lifecycle (new / close / reopen-with-history) ─────────────
+  const newSession = (): void => {
+    const id = nextId('s')
+    sessionsDispatch({ type: 'createSession', session: emptySession(id) })
+    setActiveSessionId(id)
+    speakStatus(say({ th: 'เปิดเซสชันใหม่', en: 'New session' }))
+  }
+  const closeSessionTab = (id: string): void => {
+    if (sessions.length <= 1) return // keep at least one
+    const idx = sessions.findIndex((s) => s.id === id)
+    sessionsDispatch({ type: 'closeSession', sessionId: id })
+    if (id === activeSessionId) {
+      const fallback = sessions[idx + 1] ?? sessions[idx - 1]
+      if (fallback) setActiveSessionId(fallback.id)
+    }
+  }
+  const reopenSession = async (id: string): Promise<void> => {
+    setActiveSessionId(id)
+    setActivity('chat')
+    const s = sessions.find((x) => x.id === id)
+    if (s && s.messages.length === 0 && s.claudeSessionId) {
+      const jsonl = await sessionsClient.loadTranscript(s.claudeSessionId)
+      if (jsonl) {
+        const { parseTranscript } = await import('@/cli/transcriptParser')
+        sessionsDispatch({
+          type: 'loadMessages',
+          sessionId: id,
+          messages: parseTranscript(jsonl),
+          claudeSessionId: s.claudeSessionId,
+        })
+      } else {
+        speakStatus(say({ th: 'ประวัติโหลดไม่ได้ แต่คุยต่อได้', en: 'History unavailable; you can still continue' }))
+      }
+    }
   }
 
   const centerView = (() => {
@@ -472,7 +630,13 @@ export default function App(): JSX.Element {
       case 'guide':
         return <GuideView />
       case 'settings':
-        return <SettingsView auth={auth} />
+        return (
+          <SettingsView
+            auth={auth}
+            permissions={permissions}
+            onChangePermissions={updatePermissions}
+          />
+        )
       case 'chat':
       case 'sessions':
       default:
@@ -531,7 +695,7 @@ export default function App(): JSX.Element {
                   activity={activity}
                   sessions={sessions}
                   activeSessionId={activeSessionId}
-                  onSelectSession={setActiveSessionId}
+                  onSelectSession={(id) => void reopenSession(id)}
                 />
               </Panel>
               <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-accent" />
@@ -546,6 +710,8 @@ export default function App(): JSX.Element {
                     sessions={sessions}
                     activeSessionId={activeSessionId}
                     onSelect={setActiveSessionId}
+                    onNew={newSession}
+                    onClose={closeSessionTab}
                   />
                   <div className="min-h-0 flex-1 overflow-hidden">{centerView}</div>
                 </div>
@@ -583,6 +749,14 @@ export default function App(): JSX.Element {
         onSetCwd={(path) => sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
         onAnnounce={setLiveStatus}
       />
+
+      {permissionQueue[0] && (
+        <PermissionPrompt
+          request={permissionQueue[0]}
+          onDecide={decidePermission}
+          onAlwaysAllow={alwaysAllowPermission}
+        />
+      )}
     </div>
   )
 }
