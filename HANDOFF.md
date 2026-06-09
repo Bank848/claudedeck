@@ -8,7 +8,7 @@ Dark-mode Electron desktop app that "masks" the Claude Code CLI. Phase 1 = desig
 accessibility **voice assistant**.
 
 ## Stack
-electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `start-dev.bat`) to run;
+electron-vite + React + TS + Tailwind v3.4. `npm run dev` (or `launcher/start-dev.bat`) to run;
 `npm run build` to verify. Typecheck: `npx tsc --noEmit -p tsconfig.json`.
 
 ## Voice — current state (works out of the box)

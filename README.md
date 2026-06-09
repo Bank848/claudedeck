@@ -6,9 +6,9 @@ A dark-mode desktop GUI that **masks the Claude Code CLI** — a polished shell 
 
 ## Run it
 
-Double-click **`start.bat`** (Windows). On first run it installs dependencies, builds, and launches the app. A coral splash shows while it boots.
+Double-click **`ClaudeDeck.exe`** (Windows). On first run it installs dependencies and launches the app with no console window. A coral splash shows while it boots.
 
-For UI tuning with hot reload, double-click **`start-dev.bat`**.
+Power-user batch files live in `launcher/`: **`launcher/start-dev.bat`** (hot-reload dev) and **`launcher/start-prod.bat`** (production build + launch).
 
 Or from a terminal:
 

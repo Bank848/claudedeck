@@ -1,6 +1,7 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+rem launcher\ lives one level below the project root
+cd /d "%~dp0.."
 title ClaudeDeck (dev)
 
 where npm >nul 2>nul
