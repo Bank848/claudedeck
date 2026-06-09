@@ -1,3 +1,4 @@
+import { GitBranch } from 'lucide-react'
 import { type Session, type SessionStatus } from '@/mock/fixtures'
 
 const STATUS_DOT: Record<SessionStatus, string> = {
@@ -37,10 +38,12 @@ export default function SessionsPanel({
   sessions,
   activeSessionId,
   onSelect,
+  onFork,
 }: {
   sessions: Session[]
   activeSessionId: string
   onSelect: (id: string) => void
+  onFork?: () => void
 }): JSX.Element {
   if (sessions.length === 0) {
     return (
@@ -52,7 +55,19 @@ export default function SessionsPanel({
   }
 
   return (
-    <ul role="listbox" aria-label="Sessions" className="space-y-1 px-2 py-1">
+    <div className="flex flex-col">
+      {onFork && (
+        <button
+          type="button"
+          onClick={onFork}
+          aria-label="Fork active session to a new worktree"
+          className="mx-2 mb-1 mt-1 flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-left text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <GitBranch size={13} className="shrink-0" />
+          <span className="truncate">Fork active session</span>
+        </button>
+      )}
+      <ul role="listbox" aria-label="Sessions" className="space-y-1 px-2 py-1">
       {sessions.map((session) => {
         const isActive = session.id === activeSessionId
         return (
@@ -97,6 +112,7 @@ export default function SessionsPanel({
           </li>
         )
       })}
-    </ul>
+      </ul>
+    </div>
   )
 }

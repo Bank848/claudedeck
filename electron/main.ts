@@ -8,7 +8,7 @@ import { EdgeTTS } from '@andresaya/edge-tts'
 import { detectClaude, startTurn, cancelTurn, cancelAllTurns, respondPermission } from './claude'
 import type { PermissionDecision } from './permissionProtocol'
 import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from './auth'
-import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd } from './git'
+import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd, gitForkWorktree } from './git'
 import { loadIndex, saveIndex, readTranscript, type StoredSession } from './sessionStore'
 import { loadSettings, saveSettings } from './settingsStore'
 import { safeSend } from './ipc'
@@ -438,6 +438,9 @@ function registerIpc(): void {
     'git:worktree-add',
     (_e, args: { cwd: string; path: string; branch: string; newBranch?: boolean }) =>
       gitWorktreeAdd(args.cwd, args.path, args.branch, args.newBranch),
+  )
+  ipcMain.handle('git:fork-worktree', (_e, args: { cwd: string; branch: string }) =>
+    gitForkWorktree(args.cwd, args.branch),
   )
 
   // ── sessions (hybrid persistence: our index + claude JSONL transcripts) ────

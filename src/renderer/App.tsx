@@ -38,6 +38,9 @@ import * as claudeClient from '@/cli/claudeClient'
 import type { Effort, PermissionMode, ClaudeEvent, PermissionSettings, PermissionRequestMsg } from '@/cli/types'
 import { loadPermissions, savePermissions } from '@/settings/permissionRules'
 import { PermissionPrompt } from '@/views/chat/PermissionPrompt'
+import { ForkDialog } from '@/views/chat/ForkDialog'
+import { defaultForkBranch } from '@/state/forkSession'
+import { gitClient } from '@/cli/gitClient'
 import { useAuth } from '@/cli/useAuth'
 import { LoginBanner } from '@/components/LoginBanner'
 
@@ -60,6 +63,12 @@ export default function App(): JSX.Element {
   }
   // FIFO queue of mid-turn tool-permission requests; head is shown in a modal.
   const [permissionQueue, setPermissionQueue] = useState<PermissionRequestMsg[]>([])
+  // Fork-to-worktree dialog. `sourceCwd` is captured at openFork time (not read
+  // from activeSession at confirm time) so the fork targets the intended repo even
+  // if the active tab changes between opening and confirming — and so the per-tab
+  // Fork button forks the *clicked* tab, not whatever is active.
+  const [forkState, setForkState] = useState<{ defaultBranch: string; seed: string; sourceCwd: string } | null>(null)
+  const [pendingSeed, setPendingSeed] = useState<{ sessionId: string; text: string } | null>(null)
 
   // Probe for the claude CLI once.
   useEffect(() => {
@@ -211,6 +220,7 @@ export default function App(): JSX.Element {
     { phrases: ['toggle panel', 'tasks panel', 'activity panel', 'พาเนล', 'แผงงาน'], run: () => setRightOpen((v) => !v), confirm: th ? 'สลับพาเนล' : 'Panel toggled', label: '“panel” / “พาเนล”' },
     { phrases: ['read response', 'read last', 'read message', 'read aloud', 'อ่าน', 'อ่านให้ฟัง', 'อ่านข้อความ'], run: readLastResponse, confirm: '', label: '“read” / “อ่าน”' },
     { phrases: ['send', 'send message', 'submit', 'ส่ง', 'ส่งข้อความ', 'ส่งเลย', 'ส่งให้หน่อย'], run: () => composerRef.current?.submit(), confirm: th ? 'ส่งแล้ว' : 'Sent', label: '“send” / “ส่ง”' },
+    { phrases: ['fork', 'fork session', 'fork to worktree', 'fork branch', 'แยกเซสชัน', 'แตกเซสชัน'], run: () => openFork(), confirm: th ? 'แยกเซสชัน' : 'Fork', label: '“fork” / “แยกเซสชัน”' },
     { phrases: ['connect', 'log in', 'login', 'เชื่อมต่อ', 'เข้าสู่ระบบ', 'ล็อกอิน'], run: () => { void auth.login() }, confirm: th ? 'กำลังเชื่อมต่อ' : 'Connecting', label: '“connect” / “เชื่อมต่อ”' },
     { phrases: ['disconnect', 'log out', 'logout', 'ตัดการเชื่อมต่อ', 'ออกจากระบบ'], run: () => { void auth.logout() }, confirm: th ? 'ออกจากระบบแล้ว' : 'Disconnected', label: '“disconnect” / “ออกจากระบบ”' },
     { phrases: ['quiet', 'silence', 'be quiet', 'เงียบ', 'เงียบ ๆ'], run: stopSpeaking, confirm: '', label: '“quiet” / “เงียบ”' },
@@ -369,6 +379,19 @@ export default function App(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [settings.voiceCommands, update])
+
+  // Ctrl+Shift+B → open the Fork dialog (fork the active session to a new worktree).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
+        e.preventDefault()
+        openFork()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Local engine: hold Ctrl+Shift+Space to talk (push-to-talk).
   const { startTalk, stopTalk } = localVoice
@@ -607,6 +630,48 @@ export default function App(): JSX.Element {
     }
   }
 
+  // ── Fork to a new git-worktree-bound session ─────────────────────────────
+  const openFork = (seed?: string, sourceCwd?: string): void => {
+    setForkState({
+      defaultBranch: defaultForkBranch(seed ?? '', new Date()),
+      seed: seed ?? '',
+      sourceCwd: sourceCwd ?? activeSession.cwd,
+    })
+  }
+
+  const confirmFork = async ({ branch, seed }: { branch: string; seed: string }): Promise<void> => {
+    if (!forkState) return
+    const r = await gitClient.forkWorktree({ cwd: forkState.sourceCwd, branch })
+    if (!r.ok || !r.path) {
+      speakStatus(say({ th: `แยกไม่สำเร็จ: ${r.error ?? ''}`, en: `Fork failed: ${r.error ?? 'unknown error'}` }))
+      return // keep dialog open
+    }
+    const id = nextId('s')
+    const now = new Date().toISOString()
+    sessionsDispatch({
+      type: 'createSession',
+      session: { ...emptySession(id), cwd: r.path, title: branch, updatedAt: now, createdAt: now },
+    })
+    setActiveSessionId(id)
+    setActivity('chat')
+    if (seed.trim()) setPendingSeed({ sessionId: id, text: seed.trim() })
+    setForkState(null)
+    speakStatus(say({ th: `แยกไปเซสชันใหม่ branch ${branch}`, en: `Forked to new session on branch ${branch}` }))
+  }
+
+  // Deliver a fork's starting prompt once the new session is active, idle and the
+  // CLI is up. Fires exactly once (pendingSeed cleared before send).
+  useEffect(() => {
+    if (!pendingSeed) return
+    if (activeSession.id !== pendingSeed.sessionId) return
+    if (activeSession.status !== 'idle' || !claudeOk) return
+    const text = pendingSeed.text
+    setPendingSeed(null)
+    handleSend(text, activeSession.model)
+    // handleSend/activeSession intentionally read fresh each render; guarded by the id check above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSeed, activeSession, claudeOk])
+
   const centerView = (() => {
     switch (activity) {
       case 'tasks':
@@ -638,6 +703,7 @@ export default function App(): JSX.Element {
             permissionMode={permissionMode}
             onChangePermission={setPermissionMode}
             onSetCwd={(path) => sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
+            onFork={(text) => openFork(text)}
           />
         )
     }
@@ -686,6 +752,7 @@ export default function App(): JSX.Element {
                   sessions={sessions}
                   activeSessionId={activeSessionId}
                   onSelectSession={(id) => void reopenSession(id)}
+                  onFork={() => openFork()}
                 />
               </Panel>
               <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-accent" />
@@ -702,6 +769,11 @@ export default function App(): JSX.Element {
                     onSelect={setActiveSessionId}
                     onNew={newSession}
                     onClose={closeSessionTab}
+                    onFork={(id) => {
+                      const s = sessions.find((x) => x.id === id)
+                      setActiveSessionId(id)
+                      openFork(undefined, s?.cwd)
+                    }}
                   />
                   <div className="min-h-0 flex-1 overflow-hidden">{centerView}</div>
                 </div>
@@ -745,6 +817,16 @@ export default function App(): JSX.Element {
           request={permissionQueue[0]}
           onDecide={decidePermission}
           onAlwaysAllow={alwaysAllowPermission}
+        />
+      )}
+
+      {forkState && (
+        <ForkDialog
+          defaultBranch={forkState.defaultBranch}
+          seed={forkState.seed}
+          onConfirm={(args) => void confirmFork(args)}
+          onCancel={() => setForkState(null)}
+          th={th}
         />
       )}
     </div>

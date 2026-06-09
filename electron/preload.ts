@@ -174,6 +174,10 @@ const api = {
       args: { cwd: string; path: string; branch: string; newBranch?: boolean },
     ): Promise<{ ok: boolean; path?: string; error?: string }> =>
       ipcRenderer.invoke('git:worktree-add', args),
+    forkWorktree: (
+      args: { cwd: string; branch: string },
+    ): Promise<{ ok: boolean; path?: string; branch?: string; error?: string }> =>
+      ipcRenderer.invoke('git:fork-worktree', args),
   },
 }
 

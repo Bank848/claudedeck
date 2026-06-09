@@ -13,6 +13,7 @@ export default function ChatView({
   permissionMode,
   onChangePermission,
   onSetCwd,
+  onFork,
 }: {
   session: Session
   onSend: (text: string, modelId: string, effort?: Effort) => void
@@ -20,6 +21,7 @@ export default function ChatView({
   permissionMode: PermissionMode
   onChangePermission: (mode: PermissionMode) => void
   onSetCwd: (path: string) => void
+  onFork?: (seedText: string) => void
 }): JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -60,6 +62,7 @@ export default function ChatView({
         permissionMode={permissionMode}
         onChangePermission={onChangePermission}
         onSetCwd={onSetCwd}
+        onFork={onFork}
       />
     </div>
   )

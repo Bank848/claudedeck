@@ -1,4 +1,4 @@
-import { X, Plus, Circle } from 'lucide-react'
+import { X, Plus, Circle, GitBranch } from 'lucide-react'
 import type { Session, SessionStatus } from '@/mock/fixtures'
 
 interface TabStripProps {
@@ -7,6 +7,8 @@ interface TabStripProps {
   onSelect: (id: string) => void
   onNew: () => void
   onClose: (id: string) => void
+  /** Fork this tab's session into a new worktree-bound session. */
+  onFork?: (id: string) => void
 }
 
 const STATUS_COLOR: Record<SessionStatus, string> = {
@@ -16,7 +18,7 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
   error: 'text-destructive',
 }
 
-export function TabStrip({ sessions, activeSessionId, onSelect, onNew, onClose }: TabStripProps): JSX.Element {
+export function TabStrip({ sessions, activeSessionId, onSelect, onNew, onClose, onFork }: TabStripProps): JSX.Element {
   return (
     <div className="flex h-9 shrink-0 items-stretch border-b border-border bg-surface">
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto scrollbar-thin">
@@ -42,6 +44,20 @@ export function TabStrip({ sessions, activeSessionId, onSelect, onNew, onClose }
                 <Circle size={8} className={`shrink-0 fill-current ${STATUS_COLOR[s.status]}`} />
                 <span className="truncate">{s.title}</span>
               </button>
+              {onFork && (
+                <button
+                  type="button"
+                  aria-label={`Fork ${s.title} to new worktree`}
+                  title="Fork to new worktree"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onFork(s.id)
+                  }}
+                  className="flex shrink-0 items-center rounded px-0.5 opacity-0 transition-opacity hover:text-fg group-hover:opacity-60 focus-visible:opacity-100"
+                >
+                  <GitBranch size={12} className="rounded hover:bg-surface-2" />
+                </button>
+              )}
               <button
                 type="button"
                 aria-label={`Close ${s.title}`}

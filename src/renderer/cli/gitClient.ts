@@ -18,4 +18,8 @@ export const gitClient = {
     args: { cwd: string; path: string; branch: string; newBranch?: boolean },
   ): Promise<{ ok: boolean; path?: string; error?: string }> =>
     git()?.worktreeAdd(args) ?? Promise.resolve({ ok: false, error: 'unavailable' }),
+  forkWorktree: (
+    args: { cwd: string; branch: string },
+  ): Promise<{ ok: boolean; path?: string; branch?: string; error?: string }> =>
+    git()?.forkWorktree(args) ?? Promise.resolve({ ok: false, error: 'unavailable' }),
 }

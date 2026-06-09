@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { parseBranch, parseBranches, parseStatus, parseWorktrees, isValidRef } from './git'
+import {
+  parseBranch,
+  parseBranches,
+  parseStatus,
+  parseWorktrees,
+  isValidRef,
+  forkWorktreePath,
+} from './git'
 
 describe('parseBranch', () => {
   it('returns first trimmed line', () => {
@@ -70,5 +77,20 @@ describe('isValidRef', () => {
     expect(isValidRef('a b')).toBe(false)
     expect(isValidRef('a..b')).toBe(false)
     expect(isValidRef('a~1')).toBe(false)
+  })
+})
+
+describe('forkWorktreePath', () => {
+  it('places a sibling <name>-worktrees dir, slashes dashed', () => {
+    expect(forkWorktreePath('/code/ClaudeDeck', 'fork/fix-auth').replace(/\\/g, '/'))
+      .toBe('/code/ClaudeDeck-worktrees/fork-fix-auth')
+  })
+  it('handles a trailing separator on the root', () => {
+    expect(forkWorktreePath('/code/ClaudeDeck/', 'fork/x').replace(/\\/g, '/'))
+      .toBe('/code/ClaudeDeck-worktrees/fork-x')
+  })
+  it('uses the leaf dir name for a nested repo root', () => {
+    expect(forkWorktreePath('/a/b/myrepo', 'fork/y').replace(/\\/g, '/'))
+      .toBe('/a/b/myrepo-worktrees/fork-y')
   })
 })

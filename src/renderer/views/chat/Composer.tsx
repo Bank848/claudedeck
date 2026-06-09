@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
-import { ArrowUp, Mic } from 'lucide-react'
+import { ArrowUp, Mic, GitBranch } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
 import { ModePicker } from '@/components/controls/ModePicker'
 import { EffortPicker } from '@/components/controls/EffortPicker'
@@ -34,6 +34,8 @@ interface ComposerProps {
   onChangePermission: (mode: PermissionMode) => void
   /** Retarget the active session cwd (Add folder). */
   onSetCwd: (path: string) => void
+  /** Fork to a new worktree session, seeding it with the current draft text. */
+  onFork?: (seedText: string) => void
 }
 
 function seedModelId(label: string): string {
@@ -42,7 +44,7 @@ function seedModelId(label: string): string {
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { model, onSend, busy = false, tokens, permissionMode, onChangePermission, onSetCwd },
+  { model, onSend, busy = false, tokens, permissionMode, onChangePermission, onSetCwd, onFork },
   ref,
 ): JSX.Element {
   const { settings } = useSettings()
@@ -133,6 +135,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               )}
               <ModePicker value={permissionMode} onChange={onChangePermission} />
               <EffortPicker value={effort} onChange={setEffort} />
+              {onFork && (
+                <button
+                  type="button"
+                  onClick={() => onFork(value.trim())}
+                  aria-label="Fork to new worktree with this message"
+                  title="Fork to new worktree (carry this message)"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <GitBranch size={15} />
+                </button>
+              )}
             </div>
 
             {/* Right: model, usage, send */}

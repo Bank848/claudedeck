@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { dirname, basename, join } from 'node:path'
 import { pickCwd } from './claude'
 
 export interface GitStatus {
@@ -137,4 +138,36 @@ export async function gitWorktreeAdd(
   return r.code === 0
     ? { ok: true, path: wtPath }
     : { ok: false, error: r.stderr.trim() || `git exited ${r.code}` }
+}
+
+/**
+ * Sibling worktree dir for a fork: <parent-of-root>/<root-basename>-worktrees/<branch-slug>.
+ * Pure (no FS). Branch slashes collapse to dashes so the leaf is one dir level.
+ * e.g. forkWorktreePath('/code/ClaudeDeck', 'fork/fix-auth')
+ *        → '/code/ClaudeDeck-worktrees/fork-fix-auth'
+ */
+export function forkWorktreePath(repoRoot: string, branch: string): string {
+  const root = repoRoot.replace(/[/\\]+$/, '')
+  const parent = dirname(root)
+  const name = basename(root)
+  const leaf = branch.replace(/\//g, '-')
+  return join(parent, `${name}-worktrees`, leaf)
+}
+
+/**
+ * Fork the repo at `cwd` onto a brand-new `branch` in a fresh sibling worktree.
+ * Resolves the repo's top-level first so it works from any subdir or linked worktree.
+ */
+export async function gitForkWorktree(
+  cwd: string,
+  branch: string,
+): Promise<{ ok: boolean; path?: string; branch?: string; error?: string }> {
+  if (!isValidRef(branch)) return { ok: false, error: 'invalid branch name' }
+  const top = await runGit(cwd, ['rev-parse', '--show-toplevel'])
+  if (top.code !== 0) return { ok: false, error: top.stderr.trim() || 'not a git repo' }
+  const root = top.stdout.split('\n')[0]?.trim() ?? ''
+  if (!root) return { ok: false, error: 'could not resolve repo root' }
+  const wtPath = forkWorktreePath(root, branch)
+  const r = await gitWorktreeAdd(root, wtPath, branch, true)
+  return r.ok ? { ok: true, path: r.path, branch } : { ok: false, error: r.error }
 }
