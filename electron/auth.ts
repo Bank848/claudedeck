@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { BrowserWindow } from 'electron'
 import { detectClaude } from './claude'
+import { safeSend } from './ipc'
 
 export interface AuthStatus {
   loggedIn: boolean
@@ -85,22 +86,22 @@ export async function startLogin(win: BrowserWindow): Promise<{ ok: boolean; err
           // tabs. We only capture the URL to advance the UI phase (and as a
           // fallback the renderer can surface it).
           urlSent = true
-          win.webContents.send('auth:login-url', { url })
+          safeSend(win,'auth:login-url', { url })
         }
       }
     }
   })
   p.stderr?.on('data', (d) => {
     const text = String(d).trim()
-    if (text) win.webContents.send('auth:login-error', { text })
+    if (text) safeSend(win,'auth:login-error', { text })
   })
   p.on('error', (e) => {
     loginProc = null
-    win.webContents.send('auth:login-done', { ok: false, error: e.message })
+    safeSend(win,'auth:login-done', { ok: false, error: e.message })
   })
   p.on('exit', (code) => {
     loginProc = null
-    win.webContents.send('auth:login-done', { ok: code === 0, error: code === 0 ? undefined : `exited ${code}` })
+    safeSend(win,'auth:login-done', { ok: code === 0, error: code === 0 ? undefined : `exited ${code}` })
   })
   return { ok: true }
 }

@@ -4,7 +4,7 @@ export interface ModeOption {
   mode: PermissionMode
   /** Claude-app-style label. */
   label: string
-  /** Number-key shortcut shown in the popover (1..4). */
+  /** Number-key shortcut shown in the popover (1..6). */
   shortcut: number
   /** TH + EN voice phrases (lowercase). */
   phrases: string[]
@@ -15,6 +15,8 @@ export const MODE_OPTIONS: ModeOption[] = [
   { mode: 'acceptEdits', label: 'Accept edits', shortcut: 2, phrases: ['accept edits', 'allow edits', 'ยอมรับการแก้ไข', 'ยอมรับแก้ไข', 'อนุญาตแก้ไข'] },
   { mode: 'plan', label: 'Plan mode', shortcut: 3, phrases: ['plan mode', 'read only', 'โหมดวางแผน', 'อ่านอย่างเดียว'] },
   { mode: 'bypassPermissions', label: 'Bypass permissions', shortcut: 4, phrases: ['bypass permissions', 'bypass', 'โหมดบายพาส', 'บายพาส', 'ข้ามสิทธิ์'] },
+  { mode: 'auto', label: 'Auto', shortcut: 5, phrases: ['auto mode', 'automatic', 'โหมดอัตโนมัติ', 'อัตโนมัติ'] },
+  { mode: 'dontAsk', label: "Don't ask", shortcut: 6, phrases: ["don't ask", 'dont ask', 'no ask', 'ไม่ต้องถาม', 'ไม่ถาม'] },
 ]
 
 export function modeLabel(mode: PermissionMode): string {

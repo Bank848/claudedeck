@@ -3,14 +3,14 @@ import type { PermissionMode } from '@/cli/types'
 import { MODE_OPTIONS, modeLabel, modeFromVoice } from './permissionModes'
 
 describe('permissionModes', () => {
-  it('covers exactly the four CLI permission modes, each with a unique 1..4 shortcut', () => {
+  it('covers exactly the six CLI permission modes, each with a unique 1..6 shortcut', () => {
     const modes = MODE_OPTIONS.map((o) => o.mode).sort()
-    expect(modes).toEqual(['acceptEdits', 'bypassPermissions', 'default', 'plan'])
-    expect(MODE_OPTIONS.map((o) => o.shortcut).sort()).toEqual([1, 2, 3, 4])
+    expect(modes).toEqual(['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'])
+    expect(MODE_OPTIONS.map((o) => o.shortcut).sort()).toEqual([1, 2, 3, 4, 5, 6])
   })
 
   it('modeLabel is total over PermissionMode', () => {
-    const all: PermissionMode[] = ['plan', 'acceptEdits', 'bypassPermissions', 'default']
+    const all: PermissionMode[] = ['plan', 'acceptEdits', 'bypassPermissions', 'default', 'auto', 'dontAsk']
     for (const m of all) expect(modeLabel(m).length).toBeGreaterThan(0)
   })
 

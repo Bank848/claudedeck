@@ -1,5 +1,6 @@
 import type {
   ClaudeEvent, ClaudeStderrMsg, ClaudeDoneMsg, StartTurnRequest,
+  PermissionRequestMsg, PermissionDecision,
 } from './types'
 
 function bridge() {
@@ -22,10 +23,22 @@ export function cancelTurn(turnId: string): void {
   void bridge()?.cancelTurn(turnId)
 }
 
+/** Answer a mid-turn tool-permission request for this turn. */
+export function respondPermission(
+  turnId: string,
+  id: string,
+  decision: PermissionDecision,
+  opts?: { input?: unknown; message?: string },
+): void {
+  void bridge()?.respondPermission(turnId, id, decision, opts)
+}
+
 export interface TurnHandlers {
   onEvent: (event: ClaudeEvent) => void
   onStderr: (text: string) => void
   onDone: (code: number) => void
+  /** A tool needs permission — render an Allow/Deny prompt. Optional. */
+  onPermission?: (req: PermissionRequestMsg) => void
 }
 
 /** Subscribe to one turn's events; returns an unsubscribe fn. */
@@ -35,5 +48,6 @@ export function subscribe(turnId: string, h: TurnHandlers): () => void {
   const offE = b.onEvent((m: { turnId: string; event: unknown }) => { if (m.turnId === turnId) h.onEvent(m.event as ClaudeEvent) })
   const offS = b.onStderr((m: ClaudeStderrMsg) => { if (m.turnId === turnId) h.onStderr(m.text) })
   const offD = b.onDone((m: ClaudeDoneMsg) => { if (m.turnId === turnId) h.onDone(m.code) })
-  return () => { offE(); offS(); offD() }
+  const offP = b.onPermissionRequest((m: PermissionRequestMsg) => { if (m.turnId === turnId) h.onPermission?.(m) })
+  return () => { offE(); offS(); offD(); offP() }
 }

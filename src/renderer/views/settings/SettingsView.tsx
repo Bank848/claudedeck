@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic, HardDrive, Trash2, Bug, RefreshCw, LogIn, LogOut, ChevronDown } from 'lucide-react'
+import { Volume2, Eye, Sparkles, RotateCcw, Play, Mic, HardDrive, Trash2, Bug, RefreshCw, LogIn, LogOut, ChevronDown, ShieldCheck } from 'lucide-react'
 import { useSettings } from '@/settings/SettingsContext'
 import {
   isSpeechSupported,
@@ -18,10 +18,27 @@ import { buildVoiceCatalog, findVoiceChoice, VOICE_GROUPS, type VoiceChoice } fr
 import { estimateUsage, clearCachedData, formatBytes } from '@/settings/storage'
 import { getAppInfo, checkForUpdate, openExternal, reportBugUrl, type AppInfo } from '@/settings/appInfo'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
+import { ToolRulesEditor, RuleList } from '@/components/controls/ToolRulesEditor'
+import { DirScopeEditor } from '@/components/controls/DirScopeEditor'
 import { LoginFlow } from '@/components/LoginFlow'
+import { MODE_OPTIONS } from '@/settings/permissionModes'
+import type { PermissionSettings } from '@/settings/permissionRules'
 import type { useAuth } from '@/cli/useAuth'
 
-export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth> }): JSX.Element {
+export interface SettingsViewProps {
+  auth: ReturnType<typeof useAuth>
+  /** Persistent permission settings (allow/deny/ask/defaultMode/dirs). */
+  permissions: PermissionSettings
+  onChangePermissions: (next: PermissionSettings) => void
+}
+
+export default function SettingsView({
+  auth,
+  permissions,
+  onChangePermissions,
+}: SettingsViewProps): JSX.Element {
+  const patchPerms = (patch: Partial<PermissionSettings>): void =>
+    onChangePermissions({ ...permissions, ...patch })
   const { settings, update, reset } = useSettings()
   const voices = useVoices()
   const speechOk = isSpeechSupported()
@@ -222,6 +239,56 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
               ]}
             />
           </Row>
+        </Section>
+
+        {/* Permissions — curated once, persisted, sent via --settings */}
+        <Section icon={<ShieldCheck size={16} className="text-accent" />} title="สิทธิ์การใช้งาน (Permissions)">
+          <div className="px-4 py-3">
+            <p className="mb-3 text-xs text-fg-muted">
+              กำหนดกฎว่าเครื่องมือ (tools) ไหนใช้ได้/ต้องถาม/ห้ามใช้ — แต่ละกฎคือรูปแบบหนึ่งอัน เช่น
+              <span className="font-mono"> Edit</span>, <span className="font-mono">Bash(git *)</span>,
+              <span className="font-mono"> mcp__renpy__*</span>. ค่าจะถูกจำไว้และส่งให้ claude ทุกครั้ง.
+            </p>
+            <ToolRulesEditor
+              allowed={permissions.allow ?? []}
+              disallowed={permissions.deny ?? []}
+              onChange={(next) => patchPerms({ allow: next.allowed, deny: next.disallowed })}
+            />
+            <div className="mt-4">
+              <RuleList
+                label="ถามก่อนใช้ (Ask)"
+                hint="ถามทุกครั้งก่อนใช้เครื่องมือเหล่านี้ — เช่น Bash(rm *)"
+                rules={permissions.ask ?? []}
+                onChange={(next) => patchPerms({ ask: next })}
+              />
+            </div>
+          </div>
+
+          <Row
+            label="โหมดเริ่มต้น (Default mode)"
+            desc="โหมดสิทธิ์เริ่มต้นที่บันทึกไว้ — โหมดที่เลือกจากแถบสถานะจะใช้แทนเฉพาะรอบนั้น."
+          >
+            <Select
+              ariaLabel="โหมดเริ่มต้น"
+              value={permissions.defaultMode ?? ''}
+              onChange={(v) => patchPerms({ defaultMode: v || undefined })}
+              options={[
+                { value: '', label: '(ไม่กำหนด)' },
+                ...MODE_OPTIONS.map((o) => ({ value: o.mode, label: o.label })),
+              ]}
+            />
+          </Row>
+
+          <div className="border-t border-border px-4 py-3">
+            <div className="mb-1.5 flex items-baseline gap-2">
+              <span className="text-xs font-semibold text-fg">โฟลเดอร์เพิ่มเติม (Directory access)</span>
+              <span className="text-[10px] text-fg-muted">ให้ claude เข้าถึงโฟลเดอร์นอกเหนือจากโฟลเดอร์งาน</span>
+            </div>
+            <DirScopeEditor
+              dirs={permissions.additionalDirectories ?? []}
+              onChange={(next) => patchPerms({ additionalDirectories: next })}
+            />
+          </div>
         </Section>
 
         {/* Voice — ONE box: pick a named voice, everything else is set for you */}

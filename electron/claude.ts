@@ -2,8 +2,18 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import type { BrowserWindow } from 'electron'
 import { safeSend } from './ipc'
+import { buildSettingsJson, type PermissionSettings } from './permissions'
+import {
+  buildInitialize,
+  buildUserMessage,
+  buildControlResponse,
+  parseControlRequest,
+  isResultEvent,
+  isControlFrame,
+  type PermissionDecision,
+} from './permissionProtocol'
 
-export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default'
+export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default' | 'auto' | 'dontAsk'
 
 /** Reasoning effort levels accepted by `claude --effort` (verified 2026-06-09). */
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -18,6 +28,32 @@ export interface StartTurnArgs {
   permissionMode: PermissionMode
   /** Optional reasoning effort. Omitted → the CLI picks its own default. */
   effort?: string
+  /** Per-turn tool allow rules (e.g. `Bash(git *)`, `Edit`). Each is one argv token. */
+  allowedTools?: string[]
+  /** Per-turn tool deny rules. Each is one argv token. */
+  disallowedTools?: string[]
+  /** Extra directories granted to claude this turn (`--add-dir`). Each is one argv token. */
+  additionalDirs?: string[]
+  /** Persistent permission settings, serialized to a single `--settings` JSON token. */
+  settings?: PermissionSettings
+  /** Which config layers to load (`--setting-sources`, e.g. `user,project,local`). */
+  settingSources?: string
+}
+
+/**
+ * Drop empty/whitespace-only rules; trim each. Order preserved, dups removed.
+ * Copy of src/renderer/settings/permissionRules.ts — main has no `@/` alias to
+ * the renderer, so the helper is intentionally duplicated and tested on both
+ * sides (see claude.test.ts + permissionRules.test.ts). Keep the two in sync.
+ */
+export function cleanRules(rules: readonly string[] | undefined): string[] {
+  if (!rules) return []
+  const out: string[] = []
+  for (const r of rules) {
+    const t = r.trim()
+    if (t && !out.includes(t)) out.push(t)
+  }
+  return out
 }
 
 /**
@@ -90,13 +126,27 @@ export function pickCwd(
 export function buildArgs(a: StartTurnArgs): string[] {
   const model = toCliModel(a.model)
   const effort = toCliEffort(a.effort)
+  const allow = cleanRules(a.allowedTools)
+  const deny = cleanRules(a.disallowedTools)
+  const dirs = cleanRules(a.additionalDirs)
+  const settingsJson = buildSettingsJson(a.settings)
   return [
     '-p',
     '--output-format', 'stream-json',
     '--verbose',
     '--permission-mode', a.permissionMode,
+    // Stream-json input + the stdio permission-prompt tool let the CLI delegate
+    // tool-permission decisions back to us over the control protocol (Task 5.0).
+    '--input-format', 'stream-json',
+    '--permission-prompt-tool', 'stdio',
     ...(model ? ['--model', model] : []),
     ...(effort ? ['--effort', effort] : []),
+    ...(allow.length ? ['--allowedTools', ...allow] : []),
+    ...(deny.length ? ['--disallowedTools', ...deny] : []),
+    ...(dirs.length ? ['--add-dir', ...dirs] : []),
+    ...(settingsJson ? ['--settings', settingsJson] : []),
+    // settingSources selects which config layers load — independent of defaultMode.
+    ...(a.settingSources ? ['--setting-sources', a.settingSources] : []),
     ...(a.sessionId ? ['--resume', a.sessionId] : []),
   ]
 }
@@ -125,10 +175,13 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
 
   turns.set(a.turnId, proc)
 
-  // Feed the prompt over stdin (utf-8, so Thai survives) and close the stream so
-  // claude -p stops waiting for more input and runs the turn.
-  proc.stdin?.write(a.prompt, 'utf8')
-  proc.stdin?.end()
+  // Control-protocol handshake (Task 5.0): initialize, then the prompt as a
+  // stream-json user message — the prompt lives ONLY in the JSON content, never
+  // on argv. stdin stays OPEN so we can write control_responses mid-turn; it is
+  // ended when the `result` event arrives (the turn-completion signal) or on
+  // cancel. A turn needing no permission still emits `result` and exits cleanly.
+  proc.stdin?.write(buildInitialize() + '\n', 'utf8')
+  proc.stdin?.write(buildUserMessage(a.prompt) + '\n', 'utf8')
 
   let buf = ''
   proc.stdout?.on('data', (d) => {
@@ -138,13 +191,26 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
       const line = buf.slice(0, nl).trim()
       buf = buf.slice(nl + 1)
       if (!line) continue
+      let event: unknown
       try {
-        const event = JSON.parse(line)
-        safeSend(win,'claude:event', { turnId: a.turnId, event })
+        event = JSON.parse(line)
       } catch {
         // Malformed line → surface to the terminal log, never throw.
-        safeSend(win,'claude:stderr', { turnId: a.turnId, text: line })
+        safeSend(win, 'claude:stderr', { turnId: a.turnId, text: line })
+        continue
       }
+      // A tool needs permission → ask the renderer; do NOT forward as a normal event.
+      const req = parseControlRequest(event)
+      if (req) {
+        safeSend(win, 'claude:permission-request', { turnId: a.turnId, ...req })
+        continue
+      }
+      // The CLI's own control frames (initialize response, etc.) are protocol
+      // noise — keep them out of the renderer's event stream.
+      if (isControlFrame(event)) continue
+      safeSend(win, 'claude:event', { turnId: a.turnId, event })
+      // Turn done: close stdin so the CLI shuts down cleanly.
+      if (isResultEvent(event)) proc.stdin?.end()
     }
   })
   proc.stderr?.on('data', (d) => safeSend(win,'claude:stderr', { turnId: a.turnId, text: String(d) }))
@@ -157,10 +223,28 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
   return { ok: true }
 }
 
+/**
+ * Answer a pending can_use_tool request for a turn by writing a control_response
+ * to its still-open stdin. `input` (allow) echoes the possibly-edited tool input;
+ * `message` (deny) is the reason. Returns false if the turn is gone / stdin shut.
+ */
+export function respondPermission(
+  turnId: string,
+  id: string,
+  decision: PermissionDecision,
+  opts?: { input?: unknown; message?: string },
+): boolean {
+  const proc = turns.get(turnId)
+  if (!proc?.stdin || proc.stdin.writableEnded) return false
+  proc.stdin.write(buildControlResponse(id, decision, opts) + '\n', 'utf8')
+  return true
+}
+
 /** Kill the process tree for a turn (best-effort; exit fires claude:done). */
 export function cancelTurn(turnId: string): void {
   const proc = turns.get(turnId)
   if (!proc?.pid) return
+  proc.stdin?.end() // stop holding the control stream open
   if (process.platform === 'win32') spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'])
   else proc.kill('SIGTERM')
 }

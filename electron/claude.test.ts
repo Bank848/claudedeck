@@ -70,12 +70,77 @@ describe('buildArgs', () => {
     expect(bad).not.toContain('bogus')
   })
 
+  it('passes auto and dontAsk through --permission-mode unchanged', () => {
+    for (const m of ['auto', 'dontAsk'] as const) {
+      const args = buildArgs({ ...base, permissionMode: m })
+      const i = args.indexOf('--permission-mode')
+      expect(args[i + 1]).toBe(m)
+    }
+  })
+
+  it('emits --allowedTools / --disallowedTools as separate tokens, skips when empty', () => {
+    expect(buildArgs(base)).not.toContain('--allowedTools')
+    expect(buildArgs(base)).not.toContain('--disallowedTools')
+    const a = buildArgs({
+      ...base,
+      allowedTools: ['Bash(git *)', 'Edit', '  '],
+      disallowedTools: ['WebFetch'],
+    })
+    const ai = a.indexOf('--allowedTools')
+    expect(ai).toBeGreaterThanOrEqual(0)
+    // One rule = one argv token (no shell parse): the space inside the pattern stays.
+    expect(a[ai + 1]).toBe('Bash(git *)')
+    expect(a[ai + 2]).toBe('Edit')
+    expect(a).not.toContain('  ') // empty rule dropped
+    const di = a.indexOf('--disallowedTools')
+    expect(di).toBeGreaterThanOrEqual(0)
+    expect(a[di + 1]).toBe('WebFetch')
+  })
+
+  it('emits each additional dir as an --add-dir token, skips empties', () => {
+    expect(buildArgs(base)).not.toContain('--add-dir')
+    const a = buildArgs({ ...base, additionalDirs: ['D:/lib', '  ', 'D:/shared'] })
+    const i = a.indexOf('--add-dir')
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(a.slice(i + 1, i + 3)).toEqual(['D:/lib', 'D:/shared'])
+  })
+
+  it('emits the settings object as a single --settings JSON token; omits when empty', () => {
+    expect(buildArgs(base)).not.toContain('--settings')
+    expect(buildArgs({ ...base, settings: {} })).not.toContain('--settings')
+    const a = buildArgs({ ...base, settings: { allow: ['Edit'], defaultMode: 'acceptEdits' } })
+    const i = a.indexOf('--settings')
+    expect(i).toBeGreaterThanOrEqual(0)
+    // The JSON is ONE argv token — it never hits a shell.
+    const parsed = JSON.parse(a[i + 1])
+    expect(parsed.permissions.allow).toEqual(['Edit'])
+    expect(parsed.permissions.defaultMode).toBe('acceptEdits')
+  })
+
+  it('emits --setting-sources only when provided, independent of settings', () => {
+    expect(buildArgs(base)).not.toContain('--setting-sources')
+    const a = buildArgs({ ...base, settingSources: 'user,project,local' })
+    const i = a.indexOf('--setting-sources')
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(a[i + 1]).toBe('user,project,local')
+  })
+
   it('adds --resume only when a sessionId is present', () => {
     expect(buildArgs(base)).not.toContain('--resume')
     const resumed = buildArgs({ ...base, sessionId: 'sess-9' })
     const i = resumed.indexOf('--resume')
     expect(i).toBeGreaterThanOrEqual(0)
     expect(resumed[i + 1]).toBe('sess-9')
+  })
+
+  it('runs in stream-json input mode with the stdio permission-prompt tool (P5)', () => {
+    const args = buildArgs(base)
+    const i = args.indexOf('--input-format')
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(args[i + 1]).toBe('stream-json')
+    const p = args.indexOf('--permission-prompt-tool')
+    expect(p).toBeGreaterThanOrEqual(0)
+    expect(args[p + 1]).toBe('stdio')
   })
 
   it('never puts the prompt in argv — it goes over stdin (B3 regression)', () => {

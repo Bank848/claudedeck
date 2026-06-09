@@ -97,6 +97,17 @@ export interface ClaudeEventMsg { turnId: string; event: ClaudeEvent }
 export interface ClaudeStderrMsg { turnId: string; text: string }
 export interface ClaudeDoneMsg { turnId: string; code: number }
 
+export type PermissionDecision = 'allow' | 'deny'
+
+/** A mid-turn tool-permission request from the CLI (mirror permissionProtocol.ts). */
+export interface PermissionRequestMsg {
+  turnId: string
+  id: string
+  tool: string
+  input: unknown
+  toolUseId?: string
+}
+
 export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default' | 'auto' | 'dontAsk'
 
 /** Reasoning effort levels accepted by `claude --effort` (mirror electron/claude.ts). */
