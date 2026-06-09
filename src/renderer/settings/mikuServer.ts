@@ -9,9 +9,16 @@ export function isMikuManaged(): boolean {
   return !!api()
 }
 
+export type MikuPhase = 'stopped' | 'starting' | 'ready'
+
 interface UseMikuServer {
   available: boolean
+  /** Server lifecycle: stopped → starting (warming up, port not ready) → ready. */
+  phase: MikuPhase
+  /** True only once /v1/health returns 200 — safe to send a speech request. */
   running: boolean
+  /** Spawned but still booting (pip/torch/model load). */
+  starting: boolean
   hasModel: boolean
   log: string
   start: () => Promise<void>
@@ -22,19 +29,19 @@ interface UseMikuServer {
 }
 
 export function useMikuServer(): UseMikuServer {
-  const [running, setRunning] = useState(false)
+  const [phase, setPhase] = useState<MikuPhase>('stopped')
   const [hasModel, setHasModel] = useState(false)
   const [log, setLog] = useState('')
   const m = api()
 
   useEffect(() => {
     if (!m) return
-    void m.status().then(setRunning)
+    void m.status().then(setPhase)
     void m.hasModel().then(setHasModel)
     const offLog = m.onLog((line) =>
       setLog((prev) => (prev + line).split('\n').slice(-200).join('\n')),
     )
-    const offStatus = m.onStatus(setRunning)
+    const offStatus = m.onStatus(setPhase)
     return () => {
       offLog()
       offStatus()
@@ -61,7 +68,9 @@ export function useMikuServer(): UseMikuServer {
 
   return {
     available: !!m,
-    running,
+    phase,
+    running: phase === 'ready',
+    starting: phase === 'starting',
     hasModel,
     log,
     start,

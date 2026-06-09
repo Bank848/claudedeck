@@ -79,6 +79,9 @@ export interface ClaudeDoneMsg { turnId: string; code: number }
 
 export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default'
 
+/** Reasoning effort levels accepted by `claude --effort` (mirror electron/claude.ts). */
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 export interface StartTurnRequest {
   turnId: string
   prompt: string
@@ -86,4 +89,6 @@ export interface StartTurnRequest {
   sessionId?: string
   model?: string
   permissionMode: PermissionMode
+  /** Optional reasoning effort. Omitted → the CLI picks its own default. */
+  effort?: Effort
 }

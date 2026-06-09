@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildArgs, toCliModel, pickCwd } from './claude'
+import { buildArgs, toCliModel, toCliEffort, pickCwd } from './claude'
 import type { StartTurnArgs } from './claude'
 
 const base: StartTurnArgs = {
@@ -27,6 +27,20 @@ describe('toCliModel (B2 — fixture id → valid --model)', () => {
   })
 })
 
+describe('toCliEffort (whitelist before argv)', () => {
+  it('passes through every valid level', () => {
+    for (const e of ['low', 'medium', 'high', 'xhigh', 'max']) {
+      expect(toCliEffort(e)).toBe(e)
+    }
+  })
+
+  it('drops unknown / empty values', () => {
+    expect(toCliEffort('bogus')).toBeUndefined()
+    expect(toCliEffort('')).toBeUndefined()
+    expect(toCliEffort(undefined)).toBeUndefined()
+  })
+})
+
 describe('buildArgs', () => {
   it('never emits the raw fixture id as --model (B2 regression)', () => {
     const args = buildArgs({ ...base, model: 'opus-4-8' })
@@ -42,6 +56,18 @@ describe('buildArgs', () => {
       '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode',
     ])
     expect(args[5]).toBe('plan')
+  })
+
+  it('adds --effort only for a valid level, and never a bogus one', () => {
+    expect(buildArgs(base)).not.toContain('--effort')
+    const hi = buildArgs({ ...base, effort: 'high' })
+    const i = hi.indexOf('--effort')
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(hi[i + 1]).toBe('high')
+    // An unknown value is dropped — the flag is omitted so the CLI defaults.
+    const bad = buildArgs({ ...base, effort: 'bogus' })
+    expect(bad).not.toContain('--effort')
+    expect(bad).not.toContain('bogus')
   })
 
   it('adds --resume only when a sessionId is present', () => {

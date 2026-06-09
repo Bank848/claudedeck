@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Sparkles } from 'lucide-react'
 import type { Session } from '@/mock/fixtures'
-import type { PermissionMode } from '@/cli/types'
+import type { Effort, PermissionMode } from '@/cli/types'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
 import { Composer, type ComposerHandle } from './Composer'
@@ -15,7 +15,7 @@ export default function ChatView({
   onSetCwd,
 }: {
   session: Session
-  onSend: (text: string, modelId: string) => void
+  onSend: (text: string, modelId: string, effort?: Effort) => void
   composerRef?: React.Ref<ComposerHandle>
   permissionMode: PermissionMode
   onChangePermission: (mode: PermissionMode) => void

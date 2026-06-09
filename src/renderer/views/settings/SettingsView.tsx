@@ -32,6 +32,7 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
   const [modelUrl, setModelUrl] = useState('')
   const [dlStatus, setDlStatus] = useState('')
   const [mikuPrompt, setMikuPrompt] = useState(false)
+  const [mikuErr, setMikuErr] = useState('')
   const [cacheUsage, setCacheUsage] = useState(0)
   const [clearing, setClearing] = useState(false)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
@@ -61,7 +62,9 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
       ? 'พร้อมใช้งาน 🟢'
       : !miku.hasModel
         ? 'ขั้นต่อไป: เพิ่มไฟล์โมเดล'
-        : 'ขั้นต่อไป: กดเริ่มเซิร์ฟเวอร์'
+        : miku.starting
+          ? 'กำลังเริ่มเซิร์ฟเวอร์… (~30 วิ) รอสักครู่'
+          : 'ขั้นต่อไป: กดเริ่มเซิร์ฟเวอร์'
 
   const previewActive = (): void => {
     const L = resolveLang(settings.voiceLang)
@@ -111,18 +114,28 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
       }).catch(() => undefined)
     } else if (c.engine === 'custom') {
       update('ttsEngine', 'custom')
-      if (miku.available && !miku.running) {
+      setMikuErr('')
+      if (miku.available && miku.starting) {
+        // Server spawned but still booting — a request now hits connection-refused
+        // and would fail silently. Tell the user to wait instead.
+        setMikuErr('กำลังเริ่มเซิร์ฟเวอร์มิกุ รอจนขึ้น 🟢 แล้วกดเลือกอีกครั้ง')
+      } else if (miku.available && !miku.running) {
         setMikuPrompt(true)
       } else {
         // Call customSpeak directly with explicit opts — speakSmart reads a
         // module-level cfg published via a useEffect that has not committed yet
         // in this same tick, so it would preview with the *previous* engine.
+        // Surface failures (don't swallow) so "no sound" is never silent.
         void customSpeak(sample, {
           url: settings.customUrl,
           voice: settings.customVoice,
           model: settings.customModel,
           apiKey: settings.customApiKey,
-        }).catch(() => undefined)
+        }).catch((e) =>
+          setMikuErr(
+            `เล่นเสียงมิกุไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)} — เช็คว่าเซิร์ฟเวอร์ขึ้น 🟢 แล้ว`,
+          ),
+        )
       }
     }
   }
@@ -261,6 +274,23 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
                 </button>
               </div>
             )}
+
+            {/* Miku preview failed / still warming up — surfaced, never silent */}
+            {mikuErr && (
+              <div
+                role="alert"
+                className="mt-3 flex items-center justify-between gap-3 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-300"
+              >
+                <span>{mikuErr}</span>
+                <button
+                  type="button"
+                  onClick={() => setMikuErr('')}
+                  className="shrink-0 rounded-md border border-amber-400/40 px-2.5 py-1 font-medium transition-colors hover:bg-amber-400/10"
+                >
+                  ปิด
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Advanced — progressive disclosure: hidden until the user wants it */}
@@ -360,19 +390,26 @@ export default function SettingsView({ auth }: { auth: ReturnType<typeof useAuth
                       {/* ② Server — single start/stop button */}
                       <li className="flex items-center justify-between gap-3">
                         <span className="flex items-center gap-2 text-sm text-fg">
-                          <span aria-hidden>{miku.running ? '✅' : '⬜'}</span>
-                          ② เซิร์ฟเวอร์: {miku.running ? 'กำลังทำงาน' : 'ยังไม่เริ่ม'}
+                          <span aria-hidden>{miku.running ? '✅' : miku.starting ? '⏳' : '⬜'}</span>
+                          ② เซิร์ฟเวอร์:{' '}
+                          {miku.running
+                            ? 'กำลังทำงาน'
+                            : miku.starting
+                              ? 'กำลังเริ่ม… (~30 วิ)'
+                              : 'ยังไม่เริ่ม'}
                         </span>
                         <button
                           type="button"
-                          onClick={() => (miku.running ? void miku.stop() : void miku.start())}
+                          onClick={() =>
+                            miku.running || miku.starting ? void miku.stop() : void miku.start()
+                          }
                           className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                            miku.running
+                            miku.running || miku.starting
                               ? 'bg-destructive/20 text-destructive hover:bg-destructive/30'
                               : 'bg-accent text-white hover:bg-accent-hover'
                           }`}
                         >
-                          {miku.running ? 'หยุด' : 'เริ่ม'}
+                          {miku.running || miku.starting ? 'หยุด' : 'เริ่ม'}
                         </button>
                       </li>
                     </ol>

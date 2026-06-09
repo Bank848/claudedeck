@@ -3,10 +3,12 @@ import { join } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, createWriteStream, readdirSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
+import { get as httpGet } from 'node:http'
 import { EdgeTTS } from '@andresaya/edge-tts'
 import { detectClaude, startTurn, cancelTurn, cancelAllTurns } from './claude'
 import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from './auth'
 import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd } from './git'
+import { safeSend } from './ipc'
 
 const isDev = !app.isPackaged
 const MIN_SPLASH_MS = 1100
@@ -27,7 +29,18 @@ let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 
 /* ── Miku voice server (local Python) lifecycle ───────────────────────────── */
+// 'starting' covers the long warm-up (pip check + torch + ContentVec + RVC model
+// + faiss ≈ 20–40s) BEFORE the HTTP port accepts requests. Reporting 'ready' only
+// after /v1/health returns 200 prevents the UI from inviting a POST into a server
+// that is still booting — the old code flipped "running" at spawn, so an early
+// Miku request hit connection-refused and was silently swallowed.
+type MikuPhase = 'stopped' | 'starting' | 'ready'
 let mikuProc: ChildProcess | null = null
+let mikuPhase: MikuPhase = 'stopped'
+let mikuHealthTimer: ReturnType<typeof setTimeout> | null = null
+
+const MIKU_HEALTH_URL = 'http://127.0.0.1:5050/v1/health'
+const MIKU_READY_TIMEOUT_MS = 90_000
 
 function mikuDir(): string {
   return join(process.cwd(), 'miku-server')
@@ -38,10 +51,37 @@ function mikuModelsDir(): string {
   return d
 }
 function mikuLog(line: string): void {
-  mainWindow?.webContents.send('miku:log', line)
+  safeSend(mainWindow, 'miku:log', line)
 }
-function mikuSetRunning(running: boolean): void {
-  mainWindow?.webContents.send('miku:status', running)
+function mikuSetPhase(phase: MikuPhase): void {
+  mikuPhase = phase
+  safeSend(mainWindow, 'miku:status', phase)
+}
+
+function clearMikuHealthTimer(): void {
+  if (mikuHealthTimer) {
+    clearTimeout(mikuHealthTimer)
+    mikuHealthTimer = null
+  }
+}
+
+/** Poll /v1/health until 200 (→ ready). Stays in 'starting' on timeout so the UI
+ *  can tell the user to wait/retry rather than falsely reporting failure. */
+function pollMikuHealth(deadline: number): void {
+  if (!mikuProc) return // server stopped/exited while we were waiting
+  if (Date.now() > deadline) {
+    mikuLog('\n[ยังเริ่มไม่เสร็จใน 90 วินาที — ดู log ด้านบน หรือกดเริ่มใหม่]')
+    return
+  }
+  const req = httpGet(MIKU_HEALTH_URL, (res) => {
+    res.resume()
+    if (res.statusCode === 200) mikuSetPhase('ready')
+    else mikuHealthTimer = setTimeout(() => pollMikuHealth(deadline), 1000)
+  })
+  req.on('error', () => {
+    mikuHealthTimer = setTimeout(() => pollMikuHealth(deadline), 1000)
+  })
+  req.setTimeout(2000, () => req.destroy())
 }
 
 function startMiku(): { ok: boolean; error?: string } {
@@ -50,23 +90,27 @@ function startMiku(): { ok: boolean; error?: string } {
   if (!existsSync(join(dir, 'server.py'))) return { ok: false, error: 'miku-server not found' }
   // run.bat sets up the venv + deps on first run, then launches server.py.
   mikuProc = spawn('cmd.exe', ['/c', 'run.bat'], { cwd: dir, windowsHide: true })
-  mikuSetRunning(true)
+  mikuSetPhase('starting')
   mikuProc.stdout?.on('data', (d) => mikuLog(String(d)))
   mikuProc.stderr?.on('data', (d) => mikuLog(String(d)))
   mikuProc.on('exit', (code) => {
     mikuLog(`\n[server exited: ${code}]`)
     mikuProc = null
-    mikuSetRunning(false)
+    clearMikuHealthTimer()
+    mikuSetPhase('stopped')
   })
+  pollMikuHealth(Date.now() + MIKU_READY_TIMEOUT_MS)
   return { ok: true }
 }
 
 function stopMiku(): void {
-  if (!mikuProc?.pid) return
-  // Kill the whole tree (cmd → python) on Windows.
-  spawn('taskkill', ['/pid', String(mikuProc.pid), '/T', '/F'])
+  clearMikuHealthTimer()
+  if (mikuProc?.pid) {
+    // Kill the whole tree (cmd → python) on Windows.
+    spawn('taskkill', ['/pid', String(mikuProc.pid), '/T', '/F'])
+  }
   mikuProc = null
-  mikuSetRunning(false)
+  mikuSetPhase('stopped')
 }
 
 function downloadModel(url: string, filename: string, depth = 0): Promise<void> {
@@ -302,7 +346,7 @@ function registerIpc(): void {
     stopMiku()
     return { ok: true }
   })
-  ipcMain.handle('miku:status', () => mikuProc !== null)
+  ipcMain.handle('miku:status', () => mikuPhase)
   ipcMain.handle('miku:has-model', () => {
     try {
       const files = readdirSync(mikuModelsDir(), { recursive: true }) as string[]
@@ -370,7 +414,7 @@ app.whenReady().then(() => {
 
   // Notify renderer of maximize state changes so the control icon can update.
   const emitMaxState = (): void =>
-    mainWindow?.webContents.send('window:maximized-changed', mainWindow?.isMaximized())
+    safeSend(mainWindow, 'window:maximized-changed', mainWindow?.isMaximized())
   app.on('browser-window-created', () => {
     mainWindow?.on('maximize', emitMaxState)
     mainWindow?.on('unmaximize', emitMaxState)

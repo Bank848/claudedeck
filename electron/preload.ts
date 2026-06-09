@@ -48,7 +48,7 @@ const api = {
   miku: {
     start: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('miku:start'),
     stop: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('miku:stop'),
-    status: (): Promise<boolean> => ipcRenderer.invoke('miku:status'),
+    status: (): Promise<'stopped' | 'starting' | 'ready'> => ipcRenderer.invoke('miku:status'),
     hasModel: (): Promise<boolean> => ipcRenderer.invoke('miku:has-model'),
     openModels: (): Promise<string> => ipcRenderer.invoke('miku:open-models'),
     downloadModel: (args: { url: string; index?: string }): Promise<{ ok: boolean; error?: string }> =>
@@ -58,8 +58,8 @@ const api = {
       ipcRenderer.on('miku:log', l)
       return () => ipcRenderer.removeListener('miku:log', l)
     },
-    onStatus: (cb: (running: boolean) => void): (() => void) => {
-      const l = (_e: unknown, running: boolean): void => cb(running)
+    onStatus: (cb: (phase: 'stopped' | 'starting' | 'ready') => void): (() => void) => {
+      const l = (_e: unknown, phase: 'stopped' | 'starting' | 'ready'): void => cb(phase)
       ipcRenderer.on('miku:status', l)
       return () => ipcRenderer.removeListener('miku:status', l)
     },
@@ -75,6 +75,7 @@ const api = {
       sessionId?: string
       model?: string
       permissionMode: 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default'
+      effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
     }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('claude:start', args),
     cancelTurn: (turnId: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('claude:cancel', turnId),
     onEvent: (cb: (msg: { turnId: string; event: unknown }) => void): (() => void) => {

@@ -4,7 +4,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { useSettings } from '@/settings/SettingsContext'
 import { useVoiceCommands, dispatchCommand, type VoiceCommand } from '@/settings/voiceCommands'
 import { useLocalVoice } from '@/settings/localVoice'
-import { speak, plainSpeakableText, resolveLang } from '@/settings/speech'
+import { plainSpeakableText, resolveLang } from '@/settings/speech'
 import { speakSmart, cancelSmart } from '@/settings/tts'
 import { VoiceControlIndicator } from '@/components/VoiceControlIndicator'
 
@@ -27,10 +27,11 @@ import SettingsView from '@/views/settings/SettingsView'
 
 import { ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
 import { MODE_OPTIONS } from '@/settings/permissionModes'
+import { EFFORT_OPTIONS } from '@/settings/effortLevels'
 import { useSessions } from '@/state/useSessions'
 import type { ComposerHandle } from '@/views/chat/Composer'
 import * as claudeClient from '@/cli/claudeClient'
-import type { PermissionMode, ClaudeEvent } from '@/cli/types'
+import type { Effort, PermissionMode, ClaudeEvent } from '@/cli/types'
 import { useAuth } from '@/cli/useAuth'
 import { LoginBanner } from '@/components/LoginBanner'
 
@@ -151,6 +152,13 @@ export default function App(): JSX.Element {
     { phrases: ['model opus', 'opus', 'โมเดลโอปุส', 'โอปุส'], run: () => composerRef.current?.setModel('opus-4-8'), confirm: th ? 'โมเดลโอปุส' : 'Opus', label: '“opus” / “โอปุส”' },
     { phrases: ['model sonnet', 'sonnet', 'โมเดลซอนเน็ต', 'ซอนเน็ต'], run: () => composerRef.current?.setModel('sonnet-4-6'), confirm: th ? 'โมเดลซอนเน็ต' : 'Sonnet', label: '“sonnet” / “ซอนเน็ต”' },
     { phrases: ['model haiku', 'haiku', 'โมเดลไฮกุ', 'ไฮกุ'], run: () => composerRef.current?.setModel('haiku-4-5'), confirm: th ? 'โมเดลไฮกุ' : 'Haiku', label: '“haiku” / “ไฮกุ”' },
+    // Reasoning effort by spoken level (TH+EN) → drives the Composer's local effort.
+    ...EFFORT_OPTIONS.map<VoiceCommand>((o) => ({
+      phrases: o.phrases,
+      run: () => composerRef.current?.setEffort(o.effort),
+      confirm: th ? `เอฟฟอร์ต ${o.label}` : `Effort ${o.label}`,
+      label: `“effort ${o.label}”`,
+    })),
   ]
 
   // ── Listening state machine: active ⇄ paused, or off ───────────────────────
@@ -182,11 +190,11 @@ export default function App(): JSX.Element {
   const help: VoiceCommand = {
     phrases: ['help', 'what can i say', 'commands', 'ช่วยเหลือ', 'พูดอะไรได้บ้าง', 'คำสั่ง'],
     run: () =>
-      speak(
+      void speakSmart(
         th
           ? `คุณพูดได้ว่า: ${commands.map((c) => c.confirm).filter(Boolean).join(', ')}`
           : `You can say: ${commands.map((c) => c.label.replace(/["“”]/g, '')).join(', ')}.`,
-        { lang: voiceCode },
+        { lang: voiceCode, rate: settings.speechRate, pitch: settings.speechPitch, voiceURI: settings.voiceURI },
       ),
     confirm: '',
     label: '“help” / “ช่วยเหลือ”',
@@ -212,7 +220,7 @@ export default function App(): JSX.Element {
     const newName = m[1].trim().replace(/[.?!。]+$/, '').split(/\s+/).slice(0, 2).join(' ')
     if (!newName) return false
     update('assistantName', newName)
-    speak(th ? `ได้เลย ต่อไปเรียกฉันว่า ${newName}` : `Okay, call me ${newName}`, {
+    void speakSmart(th ? `ได้เลย ต่อไปเรียกฉันว่า ${newName}` : `Okay, call me ${newName}`, {
       lang: voiceCode,
       rate: settings.speechRate,
       pitch: settings.speechPitch,
@@ -375,7 +383,7 @@ export default function App(): JSX.Element {
     }
   }
 
-  const handleSend = (text: string, modelId: string): void => {
+  const handleSend = (text: string, modelId: string, effort?: Effort): void => {
     const sid = activeSession.id
     // B4: ignore a second send while this session's turn is still streaming —
     // otherwise its events would fold into the wrong (newer) assistant message.
@@ -436,7 +444,7 @@ export default function App(): JSX.Element {
     void claudeClient
       .startTurn({
         turnId, prompt: text, cwd: activeSession.cwd,
-        sessionId: activeSession.claudeSessionId, model: modelId, permissionMode,
+        sessionId: activeSession.claudeSessionId, model: modelId, permissionMode, effort,
       })
       .then((r) => {
         if (!r.ok) {

@@ -2,26 +2,29 @@ import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { ArrowUp, Mic } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
 import { ModePicker } from '@/components/controls/ModePicker'
+import { EffortPicker } from '@/components/controls/EffortPicker'
 import { UsagePill } from '@/components/controls/UsagePill'
 import { PlusMenu } from '@/components/controls/PlusMenu'
 import { useSettings } from '@/settings/SettingsContext'
 import { useDictation } from '@/settings/speechRecognition'
 import { resolveLang } from '@/settings/speech'
 import { MODELS } from '@/mock/fixtures'
-import type { PermissionMode } from '@/cli/types'
+import type { Effort, PermissionMode } from '@/cli/types'
 
 export interface ComposerHandle {
   /** Submit the current text programmatically (used by the "ส่ง" voice command). */
   submit: () => void
   /** Set the model by id (used by the "โมเดล …" voice command). */
   setModel: (id: string) => void
+  /** Set the reasoning effort (used by the "เอฟฟอร์ต …" voice command); undefined = Auto. */
+  setEffort: (effort?: Effort) => void
 }
 
 interface ComposerProps {
   /** Session model label, used to seed the initial selection. */
   model: string
-  /** Called with the message text + selected model id when the user sends. */
-  onSend: (text: string, modelId: string) => void
+  /** Called with the message text + selected model id + effort when the user sends. */
+  onSend: (text: string, modelId: string, effort?: Effort) => void
   /** True while this session's turn is streaming — blocks a second send (B4). */
   busy?: boolean
   /** Active session token count (for the usage ring). */
@@ -45,6 +48,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const { settings } = useSettings()
   const [value, setValue] = useState('')
   const [modelId, setModelId] = useState(() => seedModelId(model))
+  // undefined = Auto: no --effort flag, the CLI uses its own default.
+  const [effort, setEffort] = useState<Effort | undefined>(undefined)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const resize = (): void => {
@@ -63,7 +68,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (busy) return // B4: turn in flight — ignore Enter / button / voice "ส่ง"
     const text = value.trim()
     if (!text) return
-    onSend(text, modelId)
+    onSend(text, modelId, effort)
     setValue('')
     requestAnimationFrame(resize)
   }
@@ -74,7 +79,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     requestAnimationFrame(resize)
   }
 
-  useImperativeHandle(ref, () => ({ submit, setModel: setModelId }))
+  useImperativeHandle(ref, () => ({ submit, setModel: setModelId, setEffort }))
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -127,6 +132,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 </button>
               )}
               <ModePicker value={permissionMode} onChange={onChangePermission} />
+              <EffortPicker value={effort} onChange={setEffort} />
             </div>
 
             {/* Right: model, usage, send */}

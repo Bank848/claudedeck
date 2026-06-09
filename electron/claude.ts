@@ -1,8 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import type { BrowserWindow } from 'electron'
+import { safeSend } from './ipc'
 
 export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default'
+
+/** Reasoning effort levels accepted by `claude --effort` (verified 2026-06-09). */
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+const EFFORT_LEVELS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 export interface StartTurnArgs {
   turnId: string
@@ -11,6 +16,17 @@ export interface StartTurnArgs {
   sessionId?: string
   model?: string
   permissionMode: PermissionMode
+  /** Optional reasoning effort. Omitted → the CLI picks its own default. */
+  effort?: string
+}
+
+/**
+ * Whitelist the effort value before it reaches argv. Anything not in the known
+ * set (including undefined/'') is dropped so the CLI falls back to its default —
+ * keeps `--effort` from ever carrying an unvalidated token.
+ */
+export function toCliEffort(e?: string): Effort | undefined {
+  return e && (EFFORT_LEVELS as readonly string[]).includes(e) ? (e as Effort) : undefined
 }
 
 const turns = new Map<string, ChildProcess>()
@@ -73,12 +89,14 @@ export function pickCwd(
  */
 export function buildArgs(a: StartTurnArgs): string[] {
   const model = toCliModel(a.model)
+  const effort = toCliEffort(a.effort)
   return [
     '-p',
     '--output-format', 'stream-json',
     '--verbose',
     '--permission-mode', a.permissionMode,
     ...(model ? ['--model', model] : []),
+    ...(effort ? ['--effort', effort] : []),
     ...(a.sessionId ? ['--resume', a.sessionId] : []),
   ]
 }
@@ -96,7 +114,7 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
   // the substitution so the user isn't surprised which cwd claude actually ran in.
   const cwd = pickCwd(a.cwd, process.cwd(), existsSync)
   if (cwd !== a.cwd) {
-    win.webContents.send('claude:stderr', { turnId: a.turnId, text: `cwd "${a.cwd}" not found — using ${cwd}` })
+    safeSend(win,'claude:stderr', { turnId: a.turnId, text: `cwd "${a.cwd}" not found — using ${cwd}` })
   }
 
   const args = buildArgs(a)
@@ -122,18 +140,18 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
       if (!line) continue
       try {
         const event = JSON.parse(line)
-        win.webContents.send('claude:event', { turnId: a.turnId, event })
+        safeSend(win,'claude:event', { turnId: a.turnId, event })
       } catch {
         // Malformed line → surface to the terminal log, never throw.
-        win.webContents.send('claude:stderr', { turnId: a.turnId, text: line })
+        safeSend(win,'claude:stderr', { turnId: a.turnId, text: line })
       }
     }
   })
-  proc.stderr?.on('data', (d) => win.webContents.send('claude:stderr', { turnId: a.turnId, text: String(d) }))
-  proc.on('error', (e) => win.webContents.send('claude:stderr', { turnId: a.turnId, text: e.message }))
+  proc.stderr?.on('data', (d) => safeSend(win,'claude:stderr', { turnId: a.turnId, text: String(d) }))
+  proc.on('error', (e) => safeSend(win,'claude:stderr', { turnId: a.turnId, text: e.message }))
   proc.on('exit', (code) => {
     turns.delete(a.turnId)
-    win.webContents.send('claude:done', { turnId: a.turnId, code: code ?? -1 })
+    safeSend(win,'claude:done', { turnId: a.turnId, code: code ?? -1 })
   })
 
   return { ok: true }
