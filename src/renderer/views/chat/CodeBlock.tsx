@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 // Lean build: ~37 common languages instead of the full ~190 (faster dev + smaller bundle).
 import hljs from 'highlight.js/lib/common'
@@ -12,7 +12,12 @@ interface CodeBlockProps {
 export function CodeBlock({ content }: CodeBlockProps): JSX.Element {
   const [copied, setCopied] = useState(false)
 
-  const highlighted = (() => {
+  // Memoize the highlight: hljs.highlightAuto tries every bundled language, so
+  // re-running it on every render is the heaviest work in a code card. The result
+  // only depends on the code + language, which are stable once the block closes —
+  // so a streaming message (which re-renders every token) stops re-highlighting
+  // its already-complete code blocks. Pure string→string: no DOM/aria change.
+  const highlighted = useMemo(() => {
     try {
       if (content.language && hljs.getLanguage(content.language)) {
         return hljs.highlight(content.code, { language: content.language }).value
@@ -24,7 +29,7 @@ export function CodeBlock({ content }: CodeBlockProps): JSX.Element {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
     }
-  })()
+  }, [content.code, content.language])
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content.code).then(() => {
