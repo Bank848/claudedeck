@@ -19,6 +19,16 @@ export interface VoiceCommand {
 }
 
 /**
+ * STT (local Whisper especially) segments Thai with spaces between words
+ * ("ไป หน้า ตั้ง ค่า"), which breaks contiguous-substring matching of multi-word
+ * Thai phrases ('ตั้งค่า'). Thai has no meaningful intra-phrase spaces, so squash
+ * whitespace BETWEEN Thai characters only — Latin word boundaries are kept
+ * ("let's end" must not become "let'send" and match 'send').
+ */
+const squashThaiSpaces = (s: string): string =>
+  s.replace(/(?<=[฀-๿])\s+(?=[฀-๿])/g, '')
+
+/**
  * Match a transcript to a command and run it. Blind users speak natural
  * sentences ("ช่วยอ่านให้ฟังหน่อย"), so we substring-match each phrase against
  * the whole transcript and let the LONGEST (most specific) matching phrase win —
@@ -30,12 +40,12 @@ export function dispatchCommand(
   raw: string,
   lang = 'en-US',
 ): VoiceCommand | null {
-  const t = raw.toLowerCase().trim()
+  const t = squashThaiSpaces(raw.toLowerCase().trim())
   let best: VoiceCommand | null = null
   let bestLen = 0
   for (const c of commands) {
     for (const p of c.phrases) {
-      const lp = p.toLowerCase()
+      const lp = squashThaiSpaces(p.toLowerCase())
       if (lp && t.includes(lp) && lp.length > bestLen) {
         best = c
         bestLen = lp.length
