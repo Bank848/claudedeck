@@ -5,6 +5,7 @@ import {
   parseStatus,
   parseWorktrees,
   isValidRef,
+  isSafePath,
   forkWorktreePath,
 } from './git'
 
@@ -77,6 +78,19 @@ describe('isValidRef', () => {
     expect(isValidRef('a b')).toBe(false)
     expect(isValidRef('a..b')).toBe(false)
     expect(isValidRef('a~1')).toBe(false)
+  })
+})
+
+describe('isSafePath (worktree path guard — MEDIUM)', () => {
+  it('accepts a normal path, including spaces and drive letters', () => {
+    expect(isSafePath('D:/code/ClaudeDeck-worktrees/feat')).toBe(true)
+    expect(isSafePath('C:/Users/me/My Repo')).toBe(true)
+  })
+  it('rejects empty / whitespace and leading-dash (option injection)', () => {
+    expect(isSafePath('')).toBe(false)
+    expect(isSafePath('   ')).toBe(false)
+    expect(isSafePath('-rf')).toBe(false)
+    expect(isSafePath('--force')).toBe(false)
   })
 })
 

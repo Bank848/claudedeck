@@ -1,5 +1,6 @@
 import { createWriteStream, unlinkSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
+import { rejectUnsafeUrl } from './netGuard'
 
 /**
  * Stream an HTTPS URL to `dest`, following redirects (GitHub release assets 302
@@ -15,11 +16,18 @@ export function downloadFile(
   depth = 0,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    // SSRF guard: validate the URL on entry AND again on every redirect hop (a
+    // redirect Location to http:// or a private/metadata IP must not be followed).
+    // The next-hop check happens at this same entry point via the recursive call.
+    const bad = rejectUnsafeUrl(url)
+    if (bad) return reject(new Error(bad))
     if (depth > 5) return reject(new Error('too many redirects'))
     httpsGet(url, (res) => {
       const code = res.statusCode ?? 0
       if (code >= 300 && code < 400 && res.headers.location) {
         res.resume()
+        const loc = rejectUnsafeUrl(res.headers.location)
+        if (loc) return reject(new Error(loc))
         downloadFile(res.headers.location, dest, onPercent, depth + 1).then(resolve, reject)
         return
       }

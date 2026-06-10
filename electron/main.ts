@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, session } from 'electron'
 import { join } from 'node:path'
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
@@ -9,6 +9,7 @@ import { EdgeTTS } from '@andresaya/edge-tts'
 import { decide, type Probe } from './mikuPreflight'
 import { prepareMiku, type SetupProgress } from './mikuSetup'
 import { downloadFile } from './download'
+import { rejectUnsafeUrl } from './netGuard'
 import { detectClaude, startTurn, cancelTurn, cancelAllTurns, respondPermission } from './claude'
 import { classifyTurn, type Tier } from './modelClassifier'
 import type { PermissionDecision } from './permissionProtocol'
@@ -325,6 +326,44 @@ function createSplash(): void {
   splashWindow.once('ready-to-show', () => splashWindow?.show())
 }
 
+/**
+ * HIGH-1: only ever hand https:/mailto: URLs to the OS. A renderer (or XSS in
+ * model output) could otherwise pass `file://`, `javascript:`, or a custom scheme
+ * to shell.openExternal and trigger local-handler execution. Used at BOTH
+ * openExternal sites (setWindowOpenHandler + the `app:open-external` handler).
+ */
+function openSafe(raw: string): void {
+  try {
+    const u = new URL(raw)
+    if (u.protocol === 'https:' || u.protocol === 'mailto:') shell.openExternal(raw)
+  } catch {
+    /* malformed url → drop */
+  }
+}
+
+/**
+ * CRIT-2a: inject a Content-Security-Policy so model-rendered output can't run
+ * script in the renderer (the realistic XSS vector). Strict only when packaged;
+ * in dev the renderer loads from ELECTRON_RENDERER_URL and Vite HMR needs a
+ * websocket + inline scripts, so connect-src/script-src are relaxed to localhost.
+ * Audio (edge-tts/miku) plays as data:/blob:, covered by media-src.
+ */
+function installCsp(): void {
+  const strict =
+    "default-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; " +
+    "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
+  const dev =
+    "default-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; " +
+    "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; " +
+    "connect-src 'self' ws://localhost:* http://localhost:*"
+  const policy = app.isPackaged ? strict : dev
+  session.defaultSession.webRequest.onHeadersReceived((d, cb) => {
+    cb({
+      responseHeaders: { ...d.responseHeaders, 'Content-Security-Policy': [policy] },
+    })
+  })
+}
+
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1320,
@@ -339,7 +378,10 @@ function createMainWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // sandbox:true restricts the preload to contextBridge/ipcRenderer (all our
+      // preload uses), shrinking the renderer's attack surface (defense-in-depth
+      // for CRIT-2a). window.claudedeck bridge is unaffected.
+      sandbox: true,
     },
   })
 
@@ -367,7 +409,7 @@ function createMainWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    openSafe(url)
     return { action: 'deny' }
   })
 
@@ -377,7 +419,6 @@ function createMainWindow(): void {
       mainWindow?.webContents.toggleDevTools()
     }
   })
-  if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' })
 
   // Register maximize listeners once here, not in browser-window-created (which fires
   // for every BrowserWindow and would stack duplicate listeners on subsequent windows).
@@ -420,7 +461,7 @@ function registerIpc(): void {
     }),
     () => ({ version: '', platform: process.platform, arch: process.arch, electron: process.versions.electron }),
   )
-  safeHandle(ipcMain, 'app:open-external', (_e, url: string) => shell.openExternal(url), () => undefined)
+  safeHandle(ipcMain, 'app:open-external', (_e, url: string) => openSafe(url), () => undefined)
   safeHandle(
     ipcMain,
     'app:pick-directory',
@@ -536,6 +577,10 @@ function registerIpc(): void {
       _e,
       args: { url: string; voice: string; model: string; apiKey?: string; input: string },
     ): Promise<string> => {
+      // HIGH-2: a renderer-supplied TTS endpoint must be public https — block
+      // SSRF to loopback/metadata/private hosts before we fetch it.
+      const bad = rejectUnsafeUrl(args.url)
+      if (bad) throw new Error(bad)
       const base = args.url.replace(/\/+$/, '')
       const headers: Record<string, string> = { 'content-type': 'application/json' }
       if (args.apiKey) headers.authorization = `Bearer ${args.apiKey}`
@@ -602,6 +647,15 @@ function registerIpc(): void {
     ipcMain,
     'miku:download-model',
     async (_e, args: { url: string; index?: string }): Promise<{ ok: boolean; error?: string }> => {
+      // HIGH-3: guard BOTH the model and the (separately-supplied) index URL —
+      // args.index was previously unchecked. downloadFile re-validates each
+      // redirect hop too.
+      const badUrl = rejectUnsafeUrl(args.url)
+      if (badUrl) throw new Error(badUrl)
+      if (args.index) {
+        const badIndex = rejectUnsafeUrl(args.index)
+        if (badIndex) throw new Error(badIndex)
+      }
       await downloadModel(args.url, 'miku.pth')
       if (args.index) await downloadModel(args.index, 'miku.index')
       return { ok: true }
@@ -767,6 +821,7 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  installCsp() // before any window loads — CRIT-2a
   registerIpc()
   createSplash()
   createMainWindow()

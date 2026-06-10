@@ -77,6 +77,18 @@ export function isValidRef(name: string): boolean {
   return /^[^\s-][^\s~^:?*[\\]*$/.test(name) && !name.includes('..')
 }
 
+/**
+ * A worktree path must be non-empty and must not start with `-` (else git would
+ * parse it as an option). Paths legitimately contain spaces/`~`/etc., so unlike
+ * `isValidRef` this only guards the leading-dash/empty cases (MEDIUM). We do NOT
+ * add a `--` separator: `git worktree add` has no such separator and `git checkout
+ * -- main` would treat `main` as a pathspec, breaking branch switching.
+ */
+export function isSafePath(p: string): boolean {
+  const t = p.trim()
+  return t.length > 0 && !t.startsWith('-')
+}
+
 // ── spawn runner ─────────────────────────────────────────────────────────────
 
 interface RunResult {
@@ -130,7 +142,7 @@ export async function gitWorktreeAdd(
   newBranch?: boolean,
 ): Promise<{ ok: boolean; path?: string; error?: string }> {
   if (!isValidRef(branch)) return { ok: false, error: 'invalid branch name' }
-  if (!wtPath.trim()) return { ok: false, error: 'no path given' }
+  if (!isSafePath(wtPath)) return { ok: false, error: 'invalid path' }
   const args = newBranch
     ? ['worktree', 'add', '-b', branch, wtPath]
     : ['worktree', 'add', wtPath, branch]
