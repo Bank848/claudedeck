@@ -1,10 +1,13 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'node:path'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, createWriteStream, readdirSync } from 'node:fs'
-import { get as httpsGet } from 'node:https'
+import { totalmem } from 'node:os'
+import { get as httpsGet, request as httpsRequest } from 'node:https'
 import { get as httpGet } from 'node:http'
 import { EdgeTTS } from '@andresaya/edge-tts'
+import { decide, type Probe } from './mikuPreflight'
+import { prepareMiku, type SetupProgress } from './mikuSetup'
 import { detectClaude, startTurn, cancelTurn, cancelAllTurns, respondPermission } from './claude'
 import { classifyTurn, type Tier } from './modelClassifier'
 import type { PermissionDecision } from './permissionProtocol'
@@ -72,19 +75,31 @@ const MIKU_HEALTH_URL = 'http://127.0.0.1:5050/v1/health'
 const MIKU_PREWARM_URL = 'http://127.0.0.1:5050/v1/prewarm'
 const MIKU_READY_TIMEOUT_MS = 90_000
 
+// torch channel + embedded-python path resolved by miku:setup; startMiku passes
+// them to run.bat via env. Defaults work for a direct start with a system py.
+let mikuTorch: 'cu124' | 'cpu' = 'cpu'
+let mikuPythonExe = ''
+
 function mikuDir(): string {
-  // Dev: the repo's miku-server. Packaged: bundled via electron-builder
-  // `extraResources` into <resourcesPath>/miku-server. process.cwd() is unreliable
-  // when packaged (it's wherever the .exe was launched from — e.g. System32 from
-  // the Start menu), so resolve against resourcesPath instead. The per-user install
-  // dir (NSIS perMachine:false → %LOCALAPPDATA%) is writable, so run.bat can still
-  // create .venv there and the in-app downloader can write models\.
+  // READ-ONLY source: server.py, rvc/, run.bat, requirements.txt. Dev: the repo's
+  // miku-server. Packaged: bundled via electron-builder `extraResources` into
+  // <resourcesPath>/miku-server. process.cwd() is unreliable when packaged (it's
+  // wherever the .exe was launched from — e.g. System32 from the Start menu), so
+  // resolve against resourcesPath instead. WRITABLE state (venv, downloaded
+  // python, models) lives under mikuHome() in userData, NOT here, so a per-machine
+  // install or read-only resources can't break setup.
   return isDev
     ? join(process.cwd(), 'miku-server')
     : join(process.resourcesPath, 'miku-server')
 }
+/** Writable Miku home in userData: holds the embedded python, .venv, and models. */
+function mikuHome(): string {
+  const d = join(app.getPath('userData'), 'miku')
+  if (!existsSync(d)) mkdirSync(d, { recursive: true })
+  return d
+}
 function mikuModelsDir(): string {
-  const d = join(mikuDir(), 'models')
+  const d = join(mikuHome(), 'models')
   if (!existsSync(d)) mkdirSync(d, { recursive: true })
   return d
 }
@@ -131,7 +146,12 @@ function startMiku(): { ok: boolean; error?: string } {
   // directory, which Windows can disable (NoDefaultCurrentDirectoryInExePath /
   // security policy / launch-from-Explorer), yielding "'run.bat' is not recognized".
   // run.bat does `cd /d "%~dp0"` itself, so it still operates in its own folder.
-  mikuProc = spawn('cmd.exe', ['/c', join(dir, 'run.bat')], { cwd: dir, windowsHide: true })
+  // run.bat reads these: MIKU_HOME (writable venv/models), MIKU_TORCH (cpu|cu124),
+  // and MIKU_PYTHON (the embedded interpreter, when setup downloaded one — else
+  // run.bat falls back to the system py launcher).
+  const env: NodeJS.ProcessEnv = { ...process.env, MIKU_HOME: mikuHome(), MIKU_TORCH: mikuTorch }
+  if (mikuPythonExe) env.MIKU_PYTHON = mikuPythonExe
+  mikuProc = spawn('cmd.exe', ['/c', join(dir, 'run.bat')], { cwd: dir, env, windowsHide: true })
   mikuSetPhase('starting')
   mikuProc.stdout?.on('data', (d) => mikuLog(String(d)))
   mikuProc.stderr?.on('data', (d) => mikuLog(String(d)))
@@ -175,6 +195,87 @@ function downloadModel(url: string, filename: string, depth = 0): Promise<void> 
       file.on('error', reject)
     }).on('error', reject)
   })
+}
+
+/* ── Miku preflight probes (feed the pure decide() in mikuPreflight.ts) ──────── */
+// All probes are best-effort and wrapped so a failure degrades gracefully rather
+// than crashing the verdict: a missing tool yields a conservative default (e.g.
+// "no GPU" → warn, not fail). wmic is tried first per the plan, then PowerShell
+// CIM as a fallback (wmic is deprecated/absent on Windows 11 24H2+).
+
+/** Run a command, resolving its stdout ('' on any error/timeout). Never rejects. */
+function tryExec(cmd: string, args: string[]): Promise<string> {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { windowsHide: true, timeout: 8000 }, (err, stdout) => {
+      resolve(err ? '' : String(stdout))
+    })
+  })
+}
+
+/** Free GB on the drive that holds userData. fs.statfs throws ENOSYS on Windows,
+ *  so query the logical disk via wmic (→ PowerShell CIM fallback). Conservative
+ *  default when both fail: assume enough space (don't block a working machine). */
+async function freeDiskGB(forPath: string): Promise<number> {
+  const drive = (forPath.match(/^([A-Za-z]):/)?.[1] ?? 'C').toUpperCase()
+  // wmic prints "FreeSpace\n<bytes>"; parse the first long run of digits.
+  const wmic = await tryExec('wmic', ['logicaldisk', 'where', `DeviceID='${drive}:'`, 'get', 'FreeSpace'])
+  let bytes = Number(wmic.match(/\d{5,}/)?.[0] ?? 0)
+  if (!bytes) {
+    const ps = await tryExec('powershell', [
+      '-NoProfile',
+      '-Command',
+      `(Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='${drive}:'").FreeSpace`,
+    ])
+    bytes = Number(ps.match(/\d{5,}/)?.[0] ?? 0)
+  }
+  return bytes > 0 ? bytes / 1024 ** 3 : 999 // unknown → don't block
+}
+
+/** True if an NVIDIA GPU is present. Failure → false (CPU mode = warn, not crash). */
+async function detectNvidia(): Promise<boolean> {
+  const wmic = await tryExec('wmic', ['path', 'win32_VideoController', 'get', 'name'])
+  if (/nvidia/i.test(wmic)) return true
+  if (wmic) return false // wmic worked and saw no NVIDIA
+  const ps = await tryExec('powershell', [
+    '-NoProfile',
+    '-Command',
+    '(Get-CimInstance Win32_VideoController).Name',
+  ])
+  return /nvidia/i.test(ps)
+}
+
+/** HEAD pypi with a short timeout. Any response → online; error/timeout → offline. */
+function probeOnline(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = httpsRequest(
+      { method: 'HEAD', host: 'pypi.org', path: '/', timeout: 4000 },
+      (res) => {
+        res.resume()
+        resolve(true)
+      },
+    )
+    req.on('error', () => resolve(false))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve(false)
+    })
+    req.end()
+  })
+}
+
+async function gatherProbe(): Promise<Probe> {
+  const [disk, nvidia, online] = await Promise.all([
+    freeDiskGB(app.getPath('userData')),
+    detectNvidia(),
+    probeOnline(),
+  ])
+  return {
+    freeDiskGB: disk,
+    totalRamGB: totalmem() / 1024 ** 3,
+    hasNvidia: nvidia,
+    online,
+    arch: process.arch,
+  }
 }
 
 /**
@@ -498,6 +599,38 @@ function registerIpc(): void {
       await downloadModel(args.url, 'miku.pth')
       if (args.index) await downloadModel(args.index, 'miku.index')
       return { ok: true }
+    },
+    (e) => ({ ok: false, error: errMsg(e) }),
+  )
+  // Spec-check the machine before offering the (large) embedded-Python setup.
+  // Pure decision lives in mikuPreflight.ts; here we only gather real probes.
+  safeHandle(
+    ipcMain,
+    'miku:preflight',
+    async () => decide(await gatherProbe()),
+    () => ({ ok: false, level: 'fail' as const, checks: [] }),
+  )
+  // Download + install the embedded Python (+ pick torch channel), then start the
+  // server. The venv/pip/model/launch steps run inside run.bat — their output
+  // streams to miku:log and phase flips via miku:status — so here we only own the
+  // python/torch prep and report it via miku:setup-progress.
+  safeHandle(
+    ipcMain,
+    'miku:setup',
+    async (): Promise<{ ok: boolean; error?: string }> => {
+      const verdict = decide(await gatherProbe())
+      if (!verdict.ok) {
+        const reason = verdict.checks.find((c) => c.level === 'fail')?.detail ?? 'preflight failed'
+        return { ok: false, error: reason }
+      }
+      const emit = (p: SetupProgress): void => safeSend(mainWindow, 'miku:setup-progress', p)
+      const hasNvidia = verdict.checks.find((c) => c.id === 'gpu')?.level === 'pass'
+      const prep = await prepareMiku(mikuHome(), hasNvidia, emit)
+      mikuTorch = prep.torch
+      mikuPythonExe = prep.pythonExe
+      emit({ step: 'done', percent: 100, message: 'พร้อมเริ่มเซิร์ฟเวอร์มิกุ' })
+      const started = startMiku()
+      return started.ok ? { ok: true } : { ok: false, error: started.error }
     },
     (e) => ({ ok: false, error: errMsg(e) }),
   )
