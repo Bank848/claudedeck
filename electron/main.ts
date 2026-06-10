@@ -41,24 +41,28 @@ let splashWindow: BrowserWindow | null = null
 // throw at import time when there's no `app-update.yml` (i.e. every dev run), so a
 // top-level `import 'electron-updater'` would crash `electron-vite dev`. Importing
 // it only inside the packaged-guarded handlers keeps dev startup clean.
-let updaterReady = false
-async function getUpdater() {
-  const { autoUpdater } = await import('electron-updater')
-  if (!updaterReady) {
-    updaterReady = true
-    autoUpdater.autoDownload = false // download only when the user clicks
-    autoUpdater.autoInstallOnAppQuit = true // also installs silently on a normal quit
-    autoUpdater.on('update-available', (i) =>
-      safeSend(mainWindow, 'updater:available', { version: i.version }),
-    )
-    autoUpdater.on('update-not-available', () => safeSend(mainWindow, 'updater:none', {}))
-    autoUpdater.on('download-progress', (p) =>
-      safeSend(mainWindow, 'updater:progress', { percent: p.percent }),
-    )
-    autoUpdater.on('update-downloaded', () => safeSend(mainWindow, 'updater:downloaded', {}))
-    autoUpdater.on('error', (e) => safeSend(mainWindow, 'updater:error', { error: errMsg(e) }))
+// Promise-based guard prevents duplicate event registration when updater:check and
+// updater:download IPC calls arrive concurrently before the lazy import resolves.
+type AutoUpdater = import('electron-updater').AppUpdater
+let updaterPromise: Promise<AutoUpdater> | null = null
+function getUpdater(): Promise<AutoUpdater> {
+  if (!updaterPromise) {
+    updaterPromise = import('electron-updater').then(({ autoUpdater }) => {
+      autoUpdater.autoDownload = false
+      autoUpdater.autoInstallOnAppQuit = true
+      autoUpdater.on('update-available', (i) =>
+        safeSend(mainWindow, 'updater:available', { version: i.version }),
+      )
+      autoUpdater.on('update-not-available', () => safeSend(mainWindow, 'updater:none', {}))
+      autoUpdater.on('download-progress', (p) =>
+        safeSend(mainWindow, 'updater:progress', { percent: p.percent }),
+      )
+      autoUpdater.on('update-downloaded', () => safeSend(mainWindow, 'updater:downloaded', {}))
+      autoUpdater.on('error', (e) => safeSend(mainWindow, 'updater:error', { error: errMsg(e) }))
+      return autoUpdater
+    })
   }
-  return autoUpdater
+  return updaterPromise
 }
 
 /* ── Miku voice server (local Python) lifecycle ───────────────────────────── */
@@ -132,6 +136,7 @@ function pollMikuHealth(deadline: number): void {
   }
   const req = httpGet(MIKU_HEALTH_URL, (res) => {
     res.resume()
+    if (!mikuProc) return // stopMiku() was called while this request was in-flight
     if (res.statusCode === 200) mikuSetPhase('ready')
     else mikuHealthTimer = setTimeout(() => pollMikuHealth(deadline), 1000)
   })
@@ -163,7 +168,8 @@ function startMiku(): { ok: boolean; error?: string } {
     mikuLog(`\n[server exited: ${code}]`)
     mikuProc = null
     clearMikuHealthTimer()
-    mikuSetPhase('stopped')
+    // Guard: stopMiku() already set 'stopped' — avoid duplicate status push to renderer.
+    if (mikuPhase !== 'stopped') mikuSetPhase('stopped')
   })
   pollMikuHealth(Date.now() + MIKU_READY_TIMEOUT_MS)
   return { ok: true }
@@ -372,6 +378,13 @@ function createMainWindow(): void {
     }
   })
   if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' })
+
+  // Register maximize listeners once here, not in browser-window-created (which fires
+  // for every BrowserWindow and would stack duplicate listeners on subsequent windows).
+  const emitMaxState = (): void =>
+    safeSend(mainWindow, 'window:maximized-changed', mainWindow?.isMaximized())
+  mainWindow.on('maximize', emitMaxState)
+  mainWindow.on('unmaximize', emitMaxState)
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -750,14 +763,6 @@ app.whenReady().then(() => {
   registerIpc()
   createSplash()
   createMainWindow()
-
-  // Notify renderer of maximize state changes so the control icon can update.
-  const emitMaxState = (): void =>
-    safeSend(mainWindow, 'window:maximized-changed', mainWindow?.isMaximized())
-  app.on('browser-window-created', () => {
-    mainWindow?.on('maximize', emitMaxState)
-    mainWindow?.on('unmaximize', emitMaxState)
-  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
