@@ -1,4 +1,4 @@
-import { createWriteStream } from 'node:fs'
+import { createWriteStream, unlinkSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
 
 /**
@@ -38,7 +38,10 @@ export function downloadFile(
       }
       res.pipe(file)
       file.on('finish', () => file.close(() => resolve()))
-      file.on('error', reject)
+      file.on('error', (err) => {
+        try { unlinkSync(dest) } catch { /* best-effort cleanup of partial file */ }
+        reject(err)
+      })
     }).on('error', reject)
   })
 }

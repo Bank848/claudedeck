@@ -444,19 +444,26 @@ function registerIpc(): void {
     ipcMain,
     'app:check-update',
     async () => {
-      const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
-        headers: { 'user-agent': 'ClaudeDeck', accept: 'application/vnd.github+json' },
-      })
-      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
-      const data = (await res.json()) as { tag_name?: string; html_url?: string }
-      const latest = (data.tag_name ?? '').replace(/^v/, '')
-      const current = app.getVersion()
-      return {
-        ok: true,
-        current,
-        latest,
-        url: data.html_url || `https://github.com/${REPO}/releases`,
-        hasUpdate: !!latest && isNewer(latest, current),
+      const ac = new AbortController()
+      const t = setTimeout(() => ac.abort(), 8000)
+      try {
+        const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+          headers: { 'user-agent': 'ClaudeDeck', accept: 'application/vnd.github+json' },
+          signal: ac.signal,
+        })
+        if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
+        const data = (await res.json()) as { tag_name?: string; html_url?: string }
+        const latest = (data.tag_name ?? '').replace(/^v/, '')
+        const current = app.getVersion()
+        return {
+          ok: true,
+          current,
+          latest,
+          url: data.html_url || `https://github.com/${REPO}/releases`,
+          hasUpdate: !!latest && isNewer(latest, current),
+        }
+      } finally {
+        clearTimeout(t)
       }
     },
     (e) => ({ ok: false, error: errMsg(e) }),
@@ -776,8 +783,6 @@ app.on('before-quit', () => {
 })
 
 app.on('window-all-closed', () => {
-  cancelAllTurns()
-  cancelLogin()
-  stopMiku()
+  // before-quit already handles cleanup (cancelAllTurns / cancelLogin / stopMiku).
   if (process.platform !== 'darwin') app.quit()
 })

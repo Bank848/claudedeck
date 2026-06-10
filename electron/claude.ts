@@ -116,7 +116,7 @@ function probe(): Promise<string | null> {
     p.on('exit', (code) => {
       if (code !== 0) return resolve(null)
       const first = out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0]
-      resolve(first && existsSync(first) ? first : first || null)
+      resolve(first && existsSync(first) ? first : null)
     })
   })
 }

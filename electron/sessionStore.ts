@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, renameSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { app } from 'electron'
@@ -43,7 +43,15 @@ export function loadIndex(file = indexFile()): StoredSession[] {
 }
 
 export function saveIndex(sessions: StoredSession[], file = indexFile()): void {
-  try { writeFileSync(file, JSON.stringify(sessions, null, 2), 'utf8') } catch { /* never throw on quit */ }
+  // Write to a temp file then rename so a crash mid-write never corrupts the live file.
+  const tmp = file + '.tmp'
+  try {
+    writeFileSync(tmp, JSON.stringify(sessions, null, 2), 'utf8')
+    renameSync(tmp, file)
+  } catch {
+    try { unlinkSync(tmp) } catch { /* best-effort cleanup */ }
+    /* never throw on quit */
+  }
 }
 
 /** Locate <uuid>.jsonl one level under the projects root. Returns abs path or null. */
