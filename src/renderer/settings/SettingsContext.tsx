@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { cancelSpeech } from './speech'
 import { setTtsConfig } from './tts'
 import { decideHydration, type LoadResult } from './hydrationDecision'
+import type { RoutingMode } from './modelRouting'
 
 export type UiScale = 'small' | 'normal' | 'large'
 
@@ -54,9 +55,15 @@ export interface Settings {
   screenReaderMode: boolean
   /** Id of the chosen voice in the unified catalog (e.g. "sys:miku", "edge:…", "miku:rvc"). */
   voiceChoiceId: string
+  /** Per-turn model routing: off (disabled), suggest (confirm dialog), auto (apply silently). */
+  modelRouting: RoutingMode
+  /** Resting/default model picker id used when routing is off or yields no change. */
+  restingModel: string
+  /** When routing is on, always show the confirm dialog (even for same/cheaper). */
+  routingAlwaysConfirm: boolean
 }
 
-const DEFAULTS: Settings = {
+export const DEFAULTS: Settings = {
   readAloud: false,
   speechRate: 1,
   speechPitch: 1,
@@ -81,6 +88,9 @@ const DEFAULTS: Settings = {
   uiScale: 'normal',
   screenReaderMode: false,
   voiceChoiceId: '',
+  modelRouting: 'off',
+  restingModel: 'opus-4-8',
+  routingAlwaysConfirm: false,
 }
 
 const STORAGE_KEY = 'claudedeck.settings'
@@ -96,7 +106,7 @@ const SettingsContext = createContext<SettingsContextValue | null>(null)
 
 // Merge a stored (partial) settings object over DEFAULTS and apply the fixed-field
 // coercions. STT is pinned to local Whisper Base (the picker was removed for simplicity).
-function withDefaults(partial: Partial<Settings>): Settings {
+export function withDefaults(partial: Partial<Settings>): Settings {
   return { ...DEFAULTS, ...partial, sttEngine: 'local', whisperModel: 'Xenova/whisper-base' }
 }
 

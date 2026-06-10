@@ -34,6 +34,7 @@ export const MODELS: ModelOption[] = [
   { id: 'opus-4-8', provider: 'claude', label: 'Claude Opus 4.8', sublabel: 'Deepest reasoning' },
   { id: 'sonnet-4-6', provider: 'claude', label: 'Claude Sonnet 4.6', sublabel: 'Best all-round' },
   { id: 'haiku-4-5', provider: 'claude', label: 'Claude Haiku 4.5', sublabel: 'Fast & cheap' },
+  { id: 'fable-5', provider: 'claude', label: 'Claude Fable 5', sublabel: 'Hardest / high-stakes' },
 ]
 
 /* ─────────────────────────────── Chat messages ─────────────────────────────── */
@@ -82,6 +83,8 @@ export interface ChatMessage {
   parts: MessagePart[]
   /** When true, the assistant message renders the streaming caret/animation. */
   streaming?: boolean
+  /** Picker id of the model this turn actually ran on (per-turn routing badge). */
+  model?: string
 }
 
 /* ───────────────────────────────── Sessions ────────────────────────────────── */

@@ -22,6 +22,7 @@ import { ToolRulesEditor, RuleList } from '@/components/controls/ToolRulesEditor
 import { DirScopeEditor } from '@/components/controls/DirScopeEditor'
 import { LoginFlow } from '@/components/LoginFlow'
 import { MODE_OPTIONS } from '@/settings/permissionModes'
+import { MODELS } from '@/mock/fixtures'
 import type { PermissionSettings } from '@/settings/permissionRules'
 import type { useAuth } from '@/cli/useAuth'
 
@@ -289,6 +290,40 @@ export default function SettingsView({
               onChange={(next) => patchPerms({ additionalDirectories: next })}
             />
           </div>
+        </Section>
+
+        {/* Model routing — suggest/confirm the cost-appropriate model per turn */}
+        <Section icon={<Sparkles size={16} className="text-accent" />} title="การเลือกโมเดลอัตโนมัติ (Model routing)">
+          <Row
+            label="โหมดการเลือกโมเดล"
+            desc="ปิด = ใช้โมเดลที่เลือกเอง · แนะนำ = เด้งให้ยืนยันเมื่อควรเปลี่ยน · อัตโนมัติ = สลับให้เลย (ยกเว้นจะขึ้น Fable 5 จะถามก่อนเสมอ)."
+          >
+            <Segmented
+              ariaLabel="โหมดการเลือกโมเดล"
+              value={settings.modelRouting}
+              onChange={(v) => update('modelRouting', v)}
+              options={[
+                { value: 'off', label: 'ปิด' },
+                { value: 'suggest', label: 'แนะนำ' },
+                { value: 'auto', label: 'อัตโนมัติ' },
+              ]}
+            />
+          </Row>
+          <Row label="โมเดลพื้นฐาน (Resting model)" desc="โมเดลตั้งต้นเมื่อไม่ต้องเปลี่ยน — ค่าแนะนำคือ Opus 4.8.">
+            <Select
+              ariaLabel="โมเดลพื้นฐาน"
+              value={settings.restingModel}
+              onChange={(v) => update('restingModel', v)}
+              options={MODELS.map((m) => ({ value: m.id, label: m.label }))}
+            />
+          </Row>
+          <Row label="ยืนยันทุกครั้ง" desc="แสดงกล่องยืนยันก่อนทุกเทิร์น แม้รุ่นที่แนะนำจะเท่าเดิมหรือถูกกว่า.">
+            <Toggle
+              label="ยืนยันทุกครั้ง"
+              checked={settings.routingAlwaysConfirm}
+              onChange={(v) => update('routingAlwaysConfirm', v)}
+            />
+          </Row>
         </Section>
 
         {/* Voice — ONE box: pick a named voice, everything else is set for you */}
