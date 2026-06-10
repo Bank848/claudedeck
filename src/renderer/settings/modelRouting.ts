@@ -38,7 +38,6 @@ export function modelIdToTier(id: string | undefined): Tier {
 }
 
 const up = (t: Tier): Tier => ORDERED[Math.min(TIER_ORDER[t] + 1, TIER_ORDER.fable)]
-const down = (t: Tier): Tier => ORDERED[Math.max(TIER_ORDER[t] - 1, TIER_ORDER.haiku)]
 
 /* ── Heuristic signals (EN + TH; the primary user writes Thai) ─────────────────── */
 
@@ -85,7 +84,6 @@ const EASY = [
   'พิมพ์ผิด',
 ]
 
-const SHORT_CHARS = 40
 const LONG_CHARS = 600
 const MIN_CLASSIFIER_CHARS = 80
 
