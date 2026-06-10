@@ -539,7 +539,10 @@ function registerIpc(): void {
   safeHandle(ipcMain, 'sessions:transcript', (_e, uuid: string) => readTranscript(uuid), () => null)
 
   // ── settings (disk-backed, origin-independent: survives Vite dev-port drift) ──
-  safeHandle(ipcMain, 'settings:load', () => loadSettings(), () => null)
+  // On a genuine first run loadSettings() returns null; only a real read failure
+  // hits the fallback. Signal that distinctly ({ __error: true }) so the renderer
+  // won't mistake a transient failure for first-run and overwrite the intact file (#4).
+  safeHandle(ipcMain, 'settings:load', () => loadSettings(), () => ({ __error: true }))
   safeHandle(
     ipcMain,
     'settings:save',

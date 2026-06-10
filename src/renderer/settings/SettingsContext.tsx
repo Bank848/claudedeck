@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { cancelSpeech } from './speech'
 import { setTtsConfig } from './tts'
+import { decideHydration, type LoadResult } from './hydrationDecision'
 
 export type UiScale = 'small' | 'normal' | 'large'
 
@@ -128,14 +129,17 @@ export function SettingsProvider({ children }: { children: React.ReactNode }): J
       return
     }
     void api.load().then((stored) => {
-      if (stored) {
-        // Disk wins.
-        setSettings(withDefaults(stored as Partial<Settings>))
-      } else if (localStorage.getItem(STORAGE_KEY) != null) {
+      // Keep a load FAILURE distinct from a genuine first-run: on failure we don't
+      // apply, don't seed, and leave hydratedRef false — which blocks the persist
+      // effect below for the session, so the intact disk file is never overwritten (#4).
+      const d = decideHydration(stored as LoadResult, localStorage.getItem(STORAGE_KEY) != null)
+      if (d.applyStored) {
+        setSettings(withDefaults(d.applyStored as Partial<Settings>)) // disk wins
+      } else if (d.seedDisk) {
         // First run after the localStorage→disk migration: seed disk from the cache.
         void api.save(settings as unknown as Record<string, unknown>)
       }
-      hydratedRef.current = true
+      hydratedRef.current = d.hydrated
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
