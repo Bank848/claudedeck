@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ClaudeDeck — Electron IPC Security Hardening Plan</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'dark' });</script>
+<style>
+  :root { --bg:#0B0D10; --panel:#14171c; --panel2:#1b1f26; --fg:#F4F6F8; --muted:#9AA2AD;
+          --accent:#D97757; --crit:#ef4444; --high:#f59e0b; --med:#eab308; --ok:#22c55e; --line:#252931; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 "Segoe UI",system-ui,sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:32px 24px 96px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  h2 { font-size:20px; margin:38px 0 12px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  h3 { font-size:16px; margin:24px 0 8px; color:var(--accent); }
+  .sub { color:var(--muted); margin:0 0 24px; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card.before { border-left:3px solid var(--crit); }
+  .card.after { border-left:3px solid var(--ok); }
+  code,pre { font-family:"Cascadia Code",Consolas,monospace; }
+  pre { background:#0e1116; border:1px solid var(--line); border-radius:8px; padding:12px; overflow:auto; font-size:13px; }
+  code { background:#0e1116; padding:1px 5px; border-radius:4px; font-size:13px; }
+  table { width:100%; border-collapse:collapse; margin:8px 0; font-size:14px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:20px; font-size:12px; font-weight:700; }
+  .t-crit{background:rgba(239,68,68,.15);color:var(--crit)} .t-high{background:rgba(245,158,11,.15);color:var(--high)}
+  .t-med{background:rgba(234,179,8,.15);color:var(--med)} .t-ok{background:rgba(34,197,94,.15);color:var(--ok)}
+  .batch { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin:8px 0; }
+  ul.tight { margin:6px 0; padding-left:20px; } ul.tight li { margin:3px 0; }
+  .task { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin:14px 0; }
+  .task h3 { margin-top:0; }
+  .note { background:rgba(217,119,87,.08); border-left:3px solid var(--accent); padding:10px 14px; border-radius:0 8px 8px 0; margin:12px 0; }
+  .keep { color:var(--ok); }
+  .mermaid { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Electron IPC Security Hardening</h1>
+<p class="sub">ClaudeDeck · fixes the Fable adversarial audit · 2 CRITICAL + 3 HIGH + 1 MEDIUM · scope = <code>electron/</code> only</p>
+
+<!-- ============ SECTION A — READ THIS ============ -->
+<h2>A · Read this first</h2>
+
+<p><b>Goal.</b> Close every renderer-reachable path to code execution, permission-gate bypass, SSRF, and
+arbitrary file write — <em>without</em> breaking the defenses that already hold or the shipped
+<code>bypassPermissions</code> UX. The renderer is treated as untrusted (realistic threat: XSS from a
+model-rendered message), so policy moves into the main process and the spawn transport stops handing
+attacker tokens to <code>cmd.exe</code>.</p>
+
+<div class="note">
+<b>Key reframing vs the raw audit (a decision, not a gap).</b><br>
+The audit's CRITICAL-2a fix ("never accept <code>bypassPermissions</code> from the renderer") is wrong for
+this app: <code>bypassPermissions</code> is a <b>legitimate user-selected mode</b>
+(<code>permissionModes.ts:17</code>, ModePicker + voice command "บายพาส"). Banning it breaks a real feature.
+The actual threat is a <b>compromised renderer</b>. So we split CRITICAL-2:
+<ul class="tight">
+<li><b>2a → add a strict CSP</b> (main-process header injection) so model output can't run script in the
+renderer in the first place. We do <b>not</b> restrict the mode the user picks.</li>
+<li><b>2b → stop trusting renderer-supplied <code>updatedInput</code></b> on <code>allow</code>: the main
+process remembers the exact tool input it parsed from the CLI's <code>can_use_tool</code> request and echoes
+<em>that</em> back, so a forged "allow" can't silently rewrite a tool call. This is invisible to honest UX.</li>
+</ul>
+</div>
+
+<h3>Before / After — the command-injection transport (CRITICAL-1)</h3>
+<div class="cols">
+  <div class="card before">
+    <b>Current</b> — every arg flows through <code>cmd.exe</code>
+    <div class="mermaid">
+flowchart TD
+  R["renderer<br/>startTurn({model:'a&amp;calc.exe'})"] --> M[main: buildArgs]
+  M --> S["spawn('cmd.exe',<br/>['/c', bin, ...args])"]
+  S --> C{{"cmd.exe re-parses<br/>&amp; | ^ ( ) %"}}
+  C -->|"--model a"| CLI[claude.cmd]
+  C -->|"&amp; calc.exe"| RCE["calc.exe ☠ RCE"]
+    </div>
+  </div>
+  <div class="card after">
+    <b>Proposed</b> — shared <code>spawnCli</code>, no shell reparse
+    <div class="mermaid">
+flowchart TD
+  R["renderer<br/>startTurn({model:'a&amp;calc.exe'})"] --> M[main: buildArgs]
+  M --> V{{"validate: toCliModel<br/>whitelist + mode allowlist"}}
+  V --> SC["spawnCli(bin,args)"]
+  SC -->|".exe → direct<br/>shell:false"| CLI[claude.exe]
+  SC -->|".cmd → quoteForCmd<br/>+ verbatimArgs"| CLI
+  CLI --> X["no metachar ever<br/>active ✓"]
+    </div>
+  </div>
+</div>
+
+<h3>Before / After — the permission gate (CRITICAL-2b)</h3>
+<div class="cols">
+  <div class="card before">
+    <b>Current</b> — renderer dictates the executed input
+    <div class="mermaid">
+sequenceDiagram
+  participant CLI
+  participant Main
+  participant Rndr as Renderer(untrusted)
+  CLI->>Main: can_use_tool {Read foo.txt}
+  Main->>Rndr: forward input verbatim
+  Rndr->>Main: allow, updatedInput={Bash rm -rf}
+  Main->>CLI: allow updatedInput (trusted!)
+  CLI->>CLI: runs rm -rf ☠
+    </div>
+  </div>
+  <div class="card after">
+    <b>Proposed</b> — main binds the response to what it parsed
+    <div class="mermaid">
+sequenceDiagram
+  participant CLI
+  participant Main
+  participant Rndr as Renderer
+  CLI->>Main: can_use_tool {id, Read foo.txt}
+  Main->>Main: store pending[id]=input
+  Main->>Rndr: forward {id, Read foo.txt}
+  Rndr->>Main: allow {id}
+  Main->>CLI: allow, updatedInput=pending[id]
+  CLI->>CLI: runs Read foo.txt ✓
+    </div>
+  </div>
+</div>
+
+<h3>What's changing</h3>
+<table>
+<tr><th>File</th><th>Change</th><th>Findings</th></tr>
+<tr><td><code>electron/spawnCli.ts</code> <span class="tag t-ok">new</span></td><td>Shared safe Windows spawn: direct for <code>.exe</code>, verbatim-args + <code>quoteForCmd</code> for <code>.cmd/.bat</code>; never a bare <code>cmd.exe /c bin …args</code></td><td>CRIT-1</td></tr>
+<tr><td><code>electron/netGuard.ts</code> <span class="tag t-ok">new</span></td><td><code>isAllowedHttpsUrl</code> + <code>isBlockedHost</code> (private/loopback/link-local/metadata) — shared by tts &amp; download</td><td>HIGH-2,3</td></tr>
+<tr><td><code>electron/claude.ts</code></td><td><code>toCliModel</code>→whitelist; runtime-validate <code>permissionMode</code>; use <code>spawnCli</code>; <code>respondPermission</code> ignores renderer <code>updatedInput</code> (echoes stored)</td><td>CRIT-1, CRIT-2b</td></tr>
+<tr><td><code>electron/auth.ts</code></td><td><code>spawnClaude</code> → <code>spawnCli</code></td><td>CRIT-1</td></tr>
+<tr><td><code>electron/main.ts</code></td><td>CSP via <code>session…onHeadersReceived</code>; <code>sandbox:true</code>; scheme-allowlist both <code>openExternal</code> sites; guard <code>tts:custom</code> &amp; <code>miku:download-model</code> URLs; store pending permission input</td><td>CRIT-2a, HIGH-1,2,3</td></tr>
+<tr><td><code>electron/download.ts</code></td><td>Re-validate URL on every redirect hop (no downgrade / private-IP)</td><td>HIGH-3</td></tr>
+<tr><td><code>electron/git.ts</code></td><td>Validate <code>wtPath</code> (leading-dash guard via <code>isSafePath</code>); arg order unchanged</td><td>MEDIUM</td></tr>
+</table>
+
+<h3>Parallelization analysis</h3>
+<p>Two new files are dependencies for edits in existing files, so they go first. After that, the per-file
+edits touch <b>disjoint files</b> and run concurrently.</p>
+<div class="batch"><b>Batch 1 (parallel)</b> — new leaf modules, no deps:
+<br>· <b>T1</b> <code>spawnCli.ts</code> (+test) &nbsp;·&nbsp; <b>T2</b> <code>netGuard.ts</code> (+test)</div>
+<div class="batch"><b>Batch 2 (parallel)</b> — consume Batch 1, different files each:
+<br>· <b>T3</b> <code>claude.ts</code> (needs T1) &nbsp;·&nbsp; <b>T5</b> <code>download.ts</code> (needs T2) &nbsp;·&nbsp; <b>T6</b> <code>git.ts</code> (independent)</div>
+<div class="batch"><b>Batch 3 (sequential tail)</b> — <code>main.ts</code> imports T1+T2+T3 surface:
+<br>· <b>T4</b> <code>main.ts</code> (needs T1,T2,T3) &nbsp;·&nbsp; <b>T7</b> <code>auth.ts</code> (needs T1) — T7 can join Batch 2 (own file), kept here only if T1 review lands late</div>
+<p><b>Critical path:</b> T1 → T3 → T4 (the spawn-transport chain). Everything else parallelizes around it.</p>
+
+<!-- ============ SECTION B — IMPLEMENTATION ============ -->
+<h2>B · Implementation plan</h2>
+<p><b>Goal:</b> remediate the audit. <b>Architecture:</b> Electron main (Node) / preload bridge / React renderer; spawns wrap the <code>claude</code> CLI. <b>Tech:</b> TypeScript, vitest. <b>Convention:</b> TDD — test first (RED), implement (GREEN); keep <code>electron/claude.test.ts</code> green; immutable helpers, pure functions unit-tested.</p>
+
+<div class="note"><b>Defenses to preserve</b> <span class="keep">(regression-guard, do not break):</span>
+prompt-over-stdin · <code>isValidRef</code> · <code>toCliEffort</code> whitelist · <code>git</code>/<code>taskkill</code>/<code>where</code> spawned <em>without</em> cmd.exe · hardcoded download filename.</div>
+
+<!-- T1 -->
+<div class="task">
+<h3>T1 · <code>electron/spawnCli.ts</code> — safe Windows CLI spawn <span class="tag t-crit">CRITICAL-1</span></h3>
+<p>One choke point for spawning a resolved CLI binary so attacker-controlled argv never reaches a shell parser.
+For a real <code>.exe</code>, spawn directly (<code>shell:false</code>) — CreateProcess + the child's own
+<code>CommandLineToArgvW</code>, zero shell layer. For an npm <code>.cmd</code>/<code>.bat</code> shim
+(what <code>where claude</code> usually returns), the only way to launch is via <code>cmd.exe</code>, so we
+use <code>windowsVerbatimArguments:true</code> and quote each arg ourselves with <code>quoteForCmd</code>:
+wrap in <code>"</code>, escape inner quotes per CommandLineToArgvW backslash rules, and neutralize
+<code>%</code> (the one metacharacter cmd still expands inside quotes).</p>
+<ul class="tight">
+<li>[ ] RED <code>spawnCli.test.ts</code>: <code>quoteForCmd('a&amp;calc')</code> → <code>"a&amp;calc"</code> (wrapped, <code>&amp;</code> inert); <code>quoteForCmd('x"y')</code> escapes the quote; <code>quoteForCmd('%PATH%')</code> <b>throws</b> (callers must pre-reject <code>%</code>); <code>isDirectExe('C:/x/claude.exe')</code> → <code>true</code>; <code>isDirectExe('C:/x/claude.cmd')</code> → <code>false</code>.</li>
+<li>[ ] GREEN implement:</li>
+</ul>
+<pre><code>import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+
+const CMD_SHIM = /\.(cmd|bat)$/i
+
+/** True when the resolved bin is directly executable by CreateProcess (no shell). */
+export function isDirectExe(bin: string): boolean {
+  return process.platform !== 'win32' || !CMD_SHIM.test(bin)
+}
+
+/** Quote one argv token for `cmd.exe` with windowsVerbatimArguments.
+ *  Inside double quotes cmd suppresses & | < > ^ ( ). `%` (var-expansion) CANNOT
+ *  be reliably escaped inside quotes under verbatim args, so callers MUST reject
+ *  `%` upstream (T3) — quoteForCmd asserts it never receives one. */
+export function quoteForCmd(arg: string): string {
+  if (arg.includes('%')) throw new Error('refusing to quote a token containing %')
+  // Backslashes that precede a quote (or the closing quote) must be doubled
+  // per CommandLineToArgvW so the child re-parses the original token exactly.
+  const s = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1')
+  return `"${s}"`
+}
+
+/** Spawn a resolved CLI binary safely on every platform. */
+export function spawnCli(bin: string, args: string[], opts: SpawnOptions = {}): ChildProcess {
+  if (isDirectExe(bin)) return spawn(bin, args, { windowsHide: true, ...opts })
+  const line = [bin, ...args].map(quoteForCmd).join(' ')
+  return spawn('cmd.exe', ['/d', '/s', '/c', line], {
+    windowsHide: true, windowsVerbatimArguments: true, ...opts,
+  })
+}</code></pre>
+<div class="note"><b>Windows reality (from review):</b> <code>where claude</code> almost always returns
+<code>claude.cmd</code> (npm shim), so on Windows the <code>.cmd</code> branch is taken <em>every time</em> —
+<code>quoteForCmd</code> is the sole defense, which is why the <code>%</code> reject in T3 is <b>mandatory</b>,
+not optional. No legitimate token needs <code>%</code>: the <code>--settings</code> JSON has none, tool rules
+like <code>Bash(git *)</code> have none, dirs are paths. Defense-in-depth: <code>probe()</code> may prefer a
+<code>.exe</code> result over <code>.cmd</code> when <code>where</code> lists both.</div>
+</div>
+
+<!-- T2 -->
+<div class="task">
+<h3>T2 · <code>electron/netGuard.ts</code> — URL allowlist / SSRF guard <span class="tag t-high">HIGH-2,3</span></h3>
+<ul class="tight">
+<li>[ ] RED <code>netGuard.test.ts</code>: <code>https://api.x.com</code> ok; <code>http://x</code> rejected (scheme); <code>https://127.0.0.1</code>, <code>https://169.254.169.254</code>, <code>https://10.0.0.5</code>, <code>https://[::1]</code>, <code>https://localhost</code> all blocked; bare hostname with private literal blocked.</li>
+<li>[ ] GREEN:</li>
+</ul>
+<pre><code>const PRIVATE_V4 = [/^127\./,/^10\./,/^192\.168\./,/^169\.254\./,/^172\.(1[6-9]|2\d|3[01])\./,/^0\./]
+function isBlockedHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase()
+  if (h === 'localhost' || h === '::1' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return PRIVATE_V4.some((re) => re.test(h))
+  return false
+}
+/** https only, public host only. Returns null when safe, else a reason string. */
+export function rejectUnsafeUrl(raw: string): string | null {
+  let u: URL
+  try { u = new URL(raw) } catch { return 'invalid url' }
+  if (u.protocol !== 'https:') return 'only https allowed'
+  if (isBlockedHost(u.hostname)) return 'host not allowed'
+  return null
+}</code></pre>
+<div class="note">DNS-rebinding (public name → private A record) is out of scope for this pass; note it as a
+follow-up. The guard blocks literal-IP SSRF, which is the audit's PoC.</div>
+</div>
+
+<!-- T3 -->
+<div class="task">
+<h3>T3 · <code>electron/claude.ts</code> — whitelist + validate + safe spawn + permission integrity <span class="tag t-crit">CRIT-1, CRIT-2b</span></h3>
+<ul class="tight">
+<li>[ ] RED add to <code>claude.test.ts</code>: <code>toCliModel('a&amp;calc')</code> → <code>undefined</code> (unknown dropped, like effort); known ids still map; <code>buildArgs({permissionMode:'evil&amp;x'})</code> falls back to <code>'default'</code> (or drops); existing 4 alias tests + the auto/dontAsk passthrough test still pass.</li>
+<li>[ ] GREEN — <code>toCliModel</code> becomes a whitelist (keep the alias map for ids it knows, plus the CLI's own short aliases/full ids; everything else → <code>undefined</code>):</li>
+</ul>
+<pre><code>const CLI_MODELS = new Set(['opus','sonnet','haiku','claude-fable-5',
+  'claude-opus-4-8','claude-sonnet-4-6','claude-haiku-4-5'])
+export function toCliModel(id?: string): string | undefined {
+  if (!id) return undefined
+  if (id in MODEL_ALIASES) return MODEL_ALIASES[id]
+  return CLI_MODELS.has(id) ? id : undefined   // unknown → drop (was: pass through)
+}
+
+const MODES = ['plan','acceptEdits','bypassPermissions','default','auto','dontAsk'] as const
+export function toCliMode(m?: string): PermissionMode {
+  return (MODES as readonly string[]).includes(m ?? '') ? (m as PermissionMode) : 'default'
+}</code></pre>
+<ul class="tight">
+<li>[ ] GREEN — <b>wire it into <code>buildArgs</code> explicitly</b> (else the whitelist is dead code): change line ~180 from <code>'--permission-mode', a.permissionMode</code> to <code>'--permission-mode', toCliMode(a.permissionMode)</code>.</li>
+<li>[ ] GREEN — <b><code>%</code> reject (mandatory for the .cmd path):</b> in <code>cleanRules</code> drop any token containing <code>%</code> (covers allowedTools/disallowedTools/additionalDirs/settings lists); and reject <code>settingSources</code>/<code>sessionId</code> if they contain <code>%</code>. A <code>%</code>-bearing token would throw in <code>quoteForCmd</code> otherwise — fail safe at validation instead.</li>
+<li>[ ] GREEN — <code>startTurn</code> uses <code>spawnCli(bin, args, { cwd })</code> for both branches (delete the <code>isWin ? cmd.exe : …</code> fork). Prompt still over stdin (unchanged).</li>
+<li>[ ] GREEN — CRIT-2b: track pending tool inputs and ignore renderer rewrites. Store on parse, echo on allow:</li>
+</ul>
+<pre><code>// module-level, keyed by turnId → (request id → original input):
+const pendingInput = new Map&lt;string, Map&lt;string, unknown&gt;&gt;()
+// on 'permission' in apply(): (pendingInput.get(turnId) ?? pendingInput.set(turnId, new Map()).get(turnId))!.set(req.id, req.input)
+// on proc 'exit' (next to turns.delete): pendingInput.delete(a.turnId)   // <-- prevent map leak on crash/cancel
+export function respondPermission(turnId, id, decision, opts) {
+  const proc = turns.get(turnId); if (!proc?.stdin || proc.stdin.writableEnded) return false
+  const original = pendingInput.get(turnId)?.get(id)
+  // Echo the input MAIN parsed, not the renderer's. Fall back to opts.input only on a
+  // map miss (race) so honest behaviour is preserved; a compromised renderer can't
+  // substitute when the original is present.
+  const safeOpts = decision === 'allow' ? { input: original ?? opts?.input ?? {} } : { message: opts?.message }
+  proc.stdin.write(buildControlResponse(id, decision, safeOpts) + '\n', 'utf8')
+  pendingInput.get(turnId)?.delete(id)
+  return true
+}</code></pre>
+<div class="note"><b>Confirmed by review (<code>App.tsx:707</code>):</b> the renderer sends back <code>req.input</code>
+unchanged on allow — there is <b>no</b> "edit tool input before allow" UX. So echoing the main-stored original
+breaks nothing today, and the <code>opts?.input</code> fallback covers the map-miss race.</div>
+</div>
+
+<!-- T4 -->
+<div class="task">
+<h3>T4 · <code>electron/main.ts</code> — CSP, sandbox, openExternal allowlist, URL guards <span class="tag t-crit">CRIT-2a</span> <span class="tag t-high">HIGH-1,2,3</span></h3>
+<ul class="tight">
+<li>[ ] CSP (CRIT-2a) — in <code>app.whenReady</code>, before windows load:</li>
+</ul>
+<pre><code>import { session } from 'electron'
+session.defaultSession.webRequest.onHeadersReceived((d, cb) => {
+  cb({ responseHeaders: { ...d.responseHeaders,
+    'Content-Security-Policy': ["default-src 'self'; img-src 'self' data: blob:; " +
+      "media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; " +
+      "script-src 'self'; connect-src 'self'"] } })
+})</code></pre>
+<div class="note"><b>Dev gate (confirmed needed):</b> in dev the renderer loads from
+<code>ELECTRON_RENDERER_URL</code> (<code>main.ts:388</code>) and HMR uses a websocket, so
+<code>connect-src 'self'</code> would break it. Gate on <code>app.isPackaged</code>: strict CSP only when
+packaged; in dev use a relaxed <code>connect-src 'self' ws://localhost:* http://localhost:*</code> and
+<code>script-src 'self' 'unsafe-inline'</code>. Audio (edge-tts/miku) is played as <code>data:</code>/<code>blob:</code>
+which <code>media-src 'self' data: blob:</code> already covers — verified, no breakage.</div>
+<ul class="tight">
+<li>[ ] <code>sandbox:true</code> in <code>createMainWindow</code> webPreferences. Smoke-test the preload bridge still exposes <code>window.claudedeck</code> (sandbox restricts preload Node — our preload only uses <code>contextBridge</code>/<code>ipcRenderer</code>, both allowed).</li>
+<li>[ ] HIGH-1 — both sites: <code>setWindowOpenHandler</code> and the <code>app:open-external</code> handler go through a shared check:</li>
+</ul>
+<pre><code>function openSafe(raw: string): void {
+  try { const u = new URL(raw); if (u.protocol === 'https:' || u.protocol === 'mailto:') shell.openExternal(raw) } catch { /* drop */ }
+}
+// setWindowOpenHandler(({url}) => { openSafe(url); return { action:'deny' } })
+// 'app:open-external' -> (_e,url:string) => openSafe(url)</code></pre>
+<ul class="tight">
+<li>[ ] HIGH-2 — <code>tts:custom</code>: <code>const bad = rejectUnsafeUrl(args.url); if (bad) throw new Error(bad)</code> before fetch.</li>
+<li>[ ] HIGH-3 — <code>miku:download-model</code>: <code>rejectUnsafeUrl(args.url)</code> <b>and</b> (when present) <code>rejectUnsafeUrl(args.index)</code> before <code>downloadModel</code> — review caught that <code>args.index</code> currently goes unchecked (<code>main.ts:605</code>).</li>
+<li>[ ] Wire CRIT-2b: pass the per-turn pending-input map through (T3 owns the store; main just forwards <code>claude:permission-response</code> unchanged — no main change needed beyond confirming it calls the new <code>respondPermission</code>).</li>
+</ul>
+</div>
+
+<!-- T5 -->
+<div class="task">
+<h3>T5 · <code>electron/download.ts</code> — re-validate every redirect <span class="tag t-high">HIGH-3</span></h3>
+<ul class="tight">
+<li>[ ] RED: a redirect <code>Location</code> to <code>http://169.254.169.254</code> rejects; an https→https public hop still follows.</li>
+<li>[ ] GREEN: at the top of <code>downloadFile</code> and again before following <code>res.headers.location</code>, call <code>rejectUnsafeUrl</code>; reject the promise on a bad hop instead of recursing blindly.</li>
+</ul>
+<pre><code>import { rejectUnsafeUrl } from './netGuard'
+export function downloadFile(url, dest, onPercent, depth = 0) {
+  return new Promise((resolve, reject) => {
+    const bad = rejectUnsafeUrl(url); if (bad) return reject(new Error(bad))
+    if (depth > 5) return reject(new Error('too many redirects'))
+    httpsGet(url, (res) => { /* …on 3xx: downloadFile(location, …) — guarded by the check at next entry… */ })
+  })
+}</code></pre>
+</div>
+
+<!-- T6 -->
+<div class="task">
+<h3>T6 · <code>electron/git.ts</code> — validate worktree path <span class="tag t-med">MEDIUM</span></h3>
+<div class="note"><b>Review correction:</b> do <b>not</b> add <code>--</code>. <code>git worktree add</code> has no
+<code>--</code> separator (it errors), and <code>git checkout -- main</code> treats <code>main</code> as a
+<em>pathspec/file</em>, not a branch — so <code>--</code> would break branch switching. Option injection is
+already blocked by <code>isValidRef</code> (rejects leading <code>-</code>) for branches; the only hole is
+<code>wtPath</code>, which just needs the same leading-dash guard. Arg order stays exactly as today.</div>
+<ul class="tight">
+<li>[ ] RED: <code>gitWorktreeAdd</code> rejects a <code>wtPath</code> starting with <code>-</code> (and empty); existing worktree-add/checkout arg-order behaviour unchanged (no new <code>--</code>).</li>
+<li>[ ] GREEN: add <code>isSafePath</code>, gate <code>gitWorktreeAdd</code> on it; keep <code>isValidRef</code> for branches and the current arg arrays untouched.</li>
+</ul>
+<pre><code>function isSafePath(p: string): boolean { const t = p.trim(); return t.length > 0 &amp;&amp; !t.startsWith('-') }
+// gitWorktreeAdd: if (!isSafePath(wtPath)) return { ok:false, error:'invalid path' }
+//   args unchanged: newBranch ? ['worktree','add','-b',branch,wtPath] : ['worktree','add',wtPath,branch]</code></pre>
+<div class="note">Optional hardening (note, don't block): constrain <code>wtPath</code> under a known base
+(like <code>forkWorktreePath</code> already does) for callers that don't need arbitrary locations.</div>
+</div>
+
+<!-- T7 -->
+<div class="task">
+<h3>T7 · <code>electron/auth.ts</code> — route through <code>spawnCli</code> <span class="tag t-crit">CRIT-1</span></h3>
+<ul class="tight">
+<li>[ ] Replace <code>spawnClaude</code> body with <code>return spawnCli(bin, args)</code>. Args are already fixed (<code>auth status/login/logout</code>), so this is transport-consistency + future-proofing. Existing login/code-over-stdin flow unchanged.</li>
+</ul>
+</div>
+
+<h3>Verification (all tasks)</h3>
+<ul class="tight">
+<li>[ ] <code>npx vitest run</code> — all green, including the preserved <code>claude.test.ts</code> suite.</li>
+<li>[ ] <code>npx tsc --noEmit</code> clean.</li>
+<li>[ ] Manual smoke (packaged + dev): start a turn, answer a permission prompt, open an external link, run a TTS, all still work; renderer loads under the new CSP in both modes.</li>
+</ul>
+
+</div>
+</body>
+</html>
