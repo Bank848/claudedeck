@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildArgs, toCliModel, toCliEffort, pickCwd, classifyLine } from './claude'
+import { buildArgs, toCliModel, toCliMode, toCliEffort, pickCwd, classifyLine, cleanRules } from './claude'
 import type { StartTurnArgs } from './claude'
 
 const base: StartTurnArgs = {
@@ -25,6 +25,32 @@ describe('toCliModel (B2 — fixture id → valid --model)', () => {
   it('passes through an already-valid alias/full id', () => {
     expect(toCliModel('opus')).toBe('opus')
     expect(toCliModel('claude-opus-4-8')).toBe('claude-opus-4-8')
+  })
+
+  it('drops an unknown / attacker-supplied id (whitelist, CRIT-1)', () => {
+    expect(toCliModel('a&calc')).toBeUndefined()
+    expect(toCliModel('bogus-model')).toBeUndefined()
+    expect(toCliModel('opus-4-8 & calc.exe')).toBeUndefined()
+  })
+})
+
+describe('toCliMode (whitelist before --permission-mode)', () => {
+  it('passes through every valid mode', () => {
+    for (const m of ['plan', 'acceptEdits', 'bypassPermissions', 'default', 'auto', 'dontAsk']) {
+      expect(toCliMode(m)).toBe(m)
+    }
+  })
+
+  it('falls back to default for unknown / attacker values', () => {
+    expect(toCliMode('evil&x')).toBe('default')
+    expect(toCliMode('')).toBe('default')
+    expect(toCliMode(undefined)).toBe('default')
+  })
+})
+
+describe('cleanRules (% reject — CRIT-1)', () => {
+  it('drops any token containing % (would throw in quoteForCmd)', () => {
+    expect(cleanRules(['Bash(git *)', '%PATH%', 'Edit'])).toEqual(['Bash(git *)', 'Edit'])
   })
 })
 
@@ -77,6 +103,19 @@ describe('buildArgs', () => {
       const i = args.indexOf('--permission-mode')
       expect(args[i + 1]).toBe(m)
     }
+  })
+
+  it('falls back to default for an attacker-supplied permission mode (CRIT-1)', () => {
+    const args = buildArgs({ ...base, permissionMode: 'evil&x' as never })
+    const i = args.indexOf('--permission-mode')
+    expect(args[i + 1]).toBe('default')
+    expect(args).not.toContain('evil&x')
+  })
+
+  it('drops --setting-sources / --resume when the value contains % (CRIT-1)', () => {
+    const a = buildArgs({ ...base, settingSources: 'user,%evil%', sessionId: 'sess-%x%' })
+    expect(a).not.toContain('--setting-sources')
+    expect(a).not.toContain('--resume')
   })
 
   it('emits --allowedTools / --disallowedTools as separate tokens, skips when empty', () => {
@@ -132,6 +171,15 @@ describe('buildArgs', () => {
     const i = resumed.indexOf('--resume')
     expect(i).toBeGreaterThanOrEqual(0)
     expect(resumed[i + 1]).toBe('sess-9')
+  })
+
+  it('adds --fork-session only when forking a resumed session', () => {
+    // No fork flag without a session id, and not unless forkSession is set.
+    expect(buildArgs({ ...base, forkSession: true })).not.toContain('--fork-session')
+    expect(buildArgs({ ...base, sessionId: 'sess-9' })).not.toContain('--fork-session')
+    const forked = buildArgs({ ...base, sessionId: 'sess-9', forkSession: true })
+    expect(forked).toContain('--resume')
+    expect(forked).toContain('--fork-session')
   })
 
   it('runs in stream-json input mode with the stdio permission-prompt tool (P5)', () => {

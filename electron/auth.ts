@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { BrowserWindow } from 'electron'
 import { detectClaude } from './claude'
+import { spawnCli } from './spawnCli'
 import { safeSend } from './ipc'
 
 export interface AuthStatus {
@@ -41,11 +42,12 @@ export function buildStatusArgs(): string[] { return ['auth', 'status', '--json'
 export function buildLoginArgs(): string[] { return ['auth', 'login', '--claudeai'] }
 export function buildLogoutArgs(): string[] { return ['auth', 'logout'] }
 
-// ── spawn helper (mirrors claude.ts) ────────────────────────────────────────
+// ── spawn helper (shared safe transport — no bare cmd.exe /c bin …args) ──────
+// Args here are fixed (`auth status/login/logout`), but routing through spawnCli
+// keeps the transport consistent with claude.ts and future-proofs against argv
+// drift (CRIT-1). login still reads the pasted code over stdin (unchanged).
 function spawnClaude(bin: string, args: string[]): ChildProcess {
-  return process.platform === 'win32'
-    ? spawn('cmd.exe', ['/c', bin, ...args], { windowsHide: true })
-    : spawn(bin, args)
+  return spawnCli(bin, args)
 }
 
 // ── status (read-only, never throws) ────────────────────────────────────────

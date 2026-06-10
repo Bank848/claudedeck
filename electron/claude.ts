@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import type { BrowserWindow } from 'electron'
 import { safeSend } from './ipc'
+import { spawnCli } from './spawnCli'
 import { buildSettingsJson, type PermissionSettings } from './permissions'
 import {
   buildInitialize,
@@ -12,6 +13,7 @@ import {
   isControlFrame,
   type PermissionDecision,
   type ControlRequest,
+  type ImageAttachment,
 } from './permissionProtocol'
 
 export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default' | 'auto' | 'dontAsk'
@@ -39,6 +41,14 @@ export interface StartTurnArgs {
   settings?: PermissionSettings
   /** Which config layers to load (`--setting-sources`, e.g. `user,project,local`). */
   settingSources?: string
+  /**
+   * Resume by COPYING the parent transcript into a fresh session id (`--fork-session`)
+   * instead of appending to it. Only meaningful alongside `sessionId`; used on the
+   * first turn of a forked tab so two tabs never write the same transcript.
+   */
+  forkSession?: boolean
+  /** Images to include as content blocks in the user message. */
+  images?: ImageAttachment[]
 }
 
 /**
@@ -52,7 +62,10 @@ export function cleanRules(rules: readonly string[] | undefined): string[] {
   const out: string[] = []
   for (const r of rules) {
     const t = r.trim()
-    if (t && !out.includes(t)) out.push(t)
+    // Drop `%`-bearing tokens: under the Windows .cmd path they'd throw in
+    // quoteForCmd (cmd var-expansion can't be escaped inside verbatim args). No
+    // legitimate rule/dir needs `%`, so fail-safe at validation (CRIT-1).
+    if (t && !t.includes('%') && !out.includes(t)) out.push(t)
   }
   return out
 }
@@ -97,6 +110,14 @@ export function classifyLine(raw: string): LineAction | null {
 }
 
 const turns = new Map<string, ChildProcess>()
+/**
+ * CRIT-2b: the exact tool input MAIN parsed from each `can_use_tool` request,
+ * keyed turnId → (request id → original input). On `allow` we echo THIS back to
+ * the CLI, never the renderer's `updatedInput`, so a compromised renderer can't
+ * silently rewrite an approved tool call. Cleared per-id on response and per-turn
+ * on exit so it can't leak across crashes/cancels.
+ */
+const pendingInput = new Map<string, Map<string, unknown>>()
 let cachedBin: string | null | undefined // undefined = not probed, null = not found
 
 /** Locate the claude binary once. Returns the resolved path, or null. */
@@ -125,7 +146,10 @@ function probe(): Promise<string | null> {
  * Map a ClaudeDeck model id (the fixture/picker id, e.g. `opus-4-8`) to a value
  * the real `claude --model` flag accepts. The CLI takes short aliases
  * (`opus`/`sonnet`/`haiku`) or full ids (`claude-opus-4-8`) — NOT `opus-4-8`.
- * Unknown values pass through (forward-compat with real aliases).
+ * This is a WHITELIST: known fixture ids map via MODEL_ALIASES, the CLI's own
+ * aliases/full ids pass through, EVERYTHING ELSE is dropped (→ undefined) so an
+ * attacker-supplied token (e.g. `a&calc`) never reaches `--model`. Matches the
+ * `toCliEffort` whitelist discipline (CRIT-1).
  */
 const MODEL_ALIASES: Record<string, string> = {
   'opus-4-8': 'opus',
@@ -133,10 +157,22 @@ const MODEL_ALIASES: Record<string, string> = {
   'haiku-4-5': 'haiku',
   'fable-5': 'claude-fable-5',
 }
+const CLI_MODELS = new Set(['opus', 'sonnet', 'haiku', 'claude-fable-5',
+  'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'])
 export function toCliModel(id?: string): string | undefined {
   if (!id) return undefined
   if (id in MODEL_ALIASES) return MODEL_ALIASES[id]
-  return id
+  return CLI_MODELS.has(id) ? id : undefined // unknown → drop (was: pass through)
+}
+
+/**
+ * Whitelist the permission mode before it reaches `--permission-mode`. Anything
+ * outside the known set (including an attacker token like `evil&x`) falls back to
+ * `'default'` so argv never carries an unvalidated value (CRIT-1).
+ */
+const MODES: readonly PermissionMode[] = ['plan', 'acceptEdits', 'bypassPermissions', 'default', 'auto', 'dontAsk']
+export function toCliMode(m?: string): PermissionMode {
+  return (MODES as readonly string[]).includes(m ?? '') ? (m as PermissionMode) : 'default'
 }
 
 /** Use the requested cwd only if it exists; otherwise fall back to a real dir. */
@@ -162,11 +198,15 @@ export function buildArgs(a: StartTurnArgs): string[] {
   const deny = cleanRules(a.disallowedTools)
   const dirs = cleanRules(a.additionalDirs)
   const settingsJson = buildSettingsJson(a.settings)
+  // Reject `%`-bearing values (see cleanRules): they'd throw in quoteForCmd on the
+  // Windows .cmd path. Drop the flag rather than crash the turn.
+  const settingSources = a.settingSources && !a.settingSources.includes('%') ? a.settingSources : undefined
+  const sessionId = a.sessionId && !a.sessionId.includes('%') ? a.sessionId : undefined
   return [
     '-p',
     '--output-format', 'stream-json',
     '--verbose',
-    '--permission-mode', a.permissionMode,
+    '--permission-mode', toCliMode(a.permissionMode),
     // Stream-json input + the stdio permission-prompt tool let the CLI delegate
     // tool-permission decisions back to us over the control protocol (Task 5.0).
     '--input-format', 'stream-json',
@@ -178,8 +218,10 @@ export function buildArgs(a: StartTurnArgs): string[] {
     ...(dirs.length ? ['--add-dir', ...dirs] : []),
     ...(settingsJson ? ['--settings', settingsJson] : []),
     // settingSources selects which config layers load — independent of defaultMode.
-    ...(a.settingSources ? ['--setting-sources', a.settingSources] : []),
-    ...(a.sessionId ? ['--resume', a.sessionId] : []),
+    ...(settingSources ? ['--setting-sources', settingSources] : []),
+    ...(sessionId ? ['--resume', sessionId] : []),
+    // Fork only makes sense when resuming: copy the parent transcript to a new id.
+    ...(sessionId && a.forkSession ? ['--fork-session'] : []),
   ]
 }
 
@@ -200,10 +242,10 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
   }
 
   const args = buildArgs(a)
-  const isWin = process.platform === 'win32'
-  const proc = isWin
-    ? spawn('cmd.exe', ['/c', bin, ...args], { cwd, windowsHide: true })
-    : spawn(bin, args, { cwd })
+  // One safe spawn transport for both platforms: a real .exe runs directly
+  // (shell:false); a .cmd shim goes through cmd.exe with verbatim args + per-token
+  // quoting (spawnCli) so no metacharacter is ever reparsed by a shell (CRIT-1).
+  const proc = spawnCli(bin, args, { cwd })
 
   turns.set(a.turnId, proc)
 
@@ -213,7 +255,7 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
   // ended when the `result` event arrives (the turn-completion signal) or on
   // cancel. A turn needing no permission still emits `result` and exits cleanly.
   proc.stdin?.write(buildInitialize() + '\n', 'utf8')
-  proc.stdin?.write(buildUserMessage(a.prompt) + '\n', 'utf8')
+  proc.stdin?.write(buildUserMessage(a.prompt, a.images) + '\n', 'utf8')
 
   // Dispatch one interpreted line to the renderer (and close stdin on result).
   const apply = (action: LineAction | null): void => {
@@ -222,9 +264,15 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
       case 'stderr':
         safeSend(win, 'claude:stderr', { turnId: a.turnId, text: action.text })
         break
-      case 'permission':
+      case 'permission': {
+        // Remember the input MAIN parsed BEFORE asking the renderer, so respondPermission
+        // can echo it back on allow regardless of what the renderer sends (CRIT-2b).
+        let m = pendingInput.get(a.turnId)
+        if (!m) { m = new Map(); pendingInput.set(a.turnId, m) }
+        m.set(action.req.id, action.req.input)
         safeSend(win, 'claude:permission-request', { turnId: a.turnId, ...action.req })
         break
+      }
       case 'drop':
         break
       case 'event':
@@ -254,6 +302,7 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
     if (buf.trim()) apply(classifyLine(buf))
     buf = ''
     turns.delete(a.turnId)
+    pendingInput.delete(a.turnId) // prevent map leak on crash/cancel/normal exit
     safeSend(win,'claude:done', { turnId: a.turnId, code: code ?? -1 })
   })
 
@@ -262,8 +311,11 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
 
 /**
  * Answer a pending can_use_tool request for a turn by writing a control_response
- * to its still-open stdin. `input` (allow) echoes the possibly-edited tool input;
- * `message` (deny) is the reason. Returns false if the turn is gone / stdin shut.
+ * to its still-open stdin. On `allow` we echo the input MAIN parsed (pendingInput),
+ * NOT the renderer's `opts.input` — a compromised renderer can't rewrite an
+ * approved tool call (CRIT-2b). `opts.input` is only a fallback on a map miss
+ * (race), preserving honest behaviour. `message` (deny) is the reason. Returns
+ * false if the turn is gone / stdin shut.
  */
 export function respondPermission(
   turnId: string,
@@ -273,7 +325,12 @@ export function respondPermission(
 ): boolean {
   const proc = turns.get(turnId)
   if (!proc?.stdin || proc.stdin.writableEnded) return false
-  proc.stdin.write(buildControlResponse(id, decision, opts) + '\n', 'utf8')
+  const original = pendingInput.get(turnId)?.get(id)
+  const safeOpts = decision === 'allow'
+    ? { input: original ?? opts?.input ?? {} }
+    : { message: opts?.message }
+  proc.stdin.write(buildControlResponse(id, decision, safeOpts) + '\n', 'utf8')
+  pendingInput.get(turnId)?.delete(id)
   return true
 }
 
