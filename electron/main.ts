@@ -1,13 +1,14 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'node:path'
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, createWriteStream, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { totalmem } from 'node:os'
-import { get as httpsGet, request as httpsRequest } from 'node:https'
+import { request as httpsRequest } from 'node:https'
 import { get as httpGet } from 'node:http'
 import { EdgeTTS } from '@andresaya/edge-tts'
 import { decide, type Probe } from './mikuPreflight'
 import { prepareMiku, type SetupProgress } from './mikuSetup'
+import { downloadFile } from './download'
 import { detectClaude, startTurn, cancelTurn, cancelAllTurns, respondPermission } from './claude'
 import { classifyTurn, type Tier } from './modelClassifier'
 import type { PermissionDecision } from './permissionProtocol'
@@ -79,6 +80,9 @@ const MIKU_READY_TIMEOUT_MS = 90_000
 // them to run.bat via env. Defaults work for a direct start with a system py.
 let mikuTorch: 'cu124' | 'cpu' = 'cpu'
 let mikuPythonExe = ''
+// Cached from the last miku:preflight so miku:setup (clicked right after) doesn't
+// re-spawn wmic/PowerShell + re-probe the network. Null until the first preflight.
+let lastProbe: Probe | null = null
 
 function mikuDir(): string {
   // READ-ONLY source: server.py, rvc/, run.bat, requirements.txt. Dev: the repo's
@@ -175,26 +179,8 @@ function stopMiku(): void {
   mikuSetPhase('stopped')
 }
 
-function downloadModel(url: string, filename: string, depth = 0): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (depth > 5) return reject(new Error('too many redirects'))
-    const dest = join(mikuModelsDir(), filename)
-    httpsGet(url, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume()
-        downloadModel(res.headers.location, filename, depth + 1).then(resolve, reject)
-        return
-      }
-      if (res.statusCode !== 200) {
-        res.resume()
-        return reject(new Error(`HTTP ${res.statusCode}`))
-      }
-      const file = createWriteStream(dest)
-      res.pipe(file)
-      file.on('finish', () => file.close(() => resolve()))
-      file.on('error', reject)
-    }).on('error', reject)
-  })
+function downloadModel(url: string, filename: string): Promise<void> {
+  return downloadFile(url, join(mikuModelsDir(), filename))
 }
 
 /* ── Miku preflight probes (feed the pure decide() in mikuPreflight.ts) ──────── */
@@ -607,7 +593,10 @@ function registerIpc(): void {
   safeHandle(
     ipcMain,
     'miku:preflight',
-    async () => decide(await gatherProbe()),
+    async () => {
+      lastProbe = await gatherProbe()
+      return decide(lastProbe)
+    },
     () => ({ ok: false, level: 'fail' as const, checks: [] }),
   )
   // Download + install the embedded Python (+ pick torch channel), then start the
@@ -618,7 +607,9 @@ function registerIpc(): void {
     ipcMain,
     'miku:setup',
     async (): Promise<{ ok: boolean; error?: string }> => {
-      const verdict = decide(await gatherProbe())
+      // Reuse the probe the UI just gathered via miku:preflight; only re-probe if
+      // setup was somehow invoked without one.
+      const verdict = decide(lastProbe ?? (await gatherProbe()))
       if (!verdict.ok) {
         const reason = verdict.checks.find((c) => c.level === 'fail')?.detail ?? 'preflight failed'
         return { ok: false, error: reason }

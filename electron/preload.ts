@@ -92,16 +92,9 @@ const api = {
     /** Render the fixed assistant phrases into the server cache ahead of first use. */
     prewarm: (phrases: string[]): Promise<{ ok: boolean; count?: number; error?: string }> =>
       ipcRenderer.invoke('miku:prewarm', phrases),
-    onLog: (cb: (line: string) => void): (() => void) => {
-      const l = (_e: unknown, line: string): void => cb(line)
-      ipcRenderer.on('miku:log', l)
-      return () => ipcRenderer.removeListener('miku:log', l)
-    },
-    onStatus: (cb: (phase: 'stopped' | 'starting' | 'ready') => void): (() => void) => {
-      const l = (_e: unknown, phase: 'stopped' | 'starting' | 'ready'): void => cb(phase)
-      ipcRenderer.on('miku:status', l)
-      return () => ipcRenderer.removeListener('miku:status', l)
-    },
+    onLog: (cb: (line: string) => void): (() => void) => sub('miku:log', cb),
+    onStatus: (cb: (phase: 'stopped' | 'starting' | 'ready') => void): (() => void) =>
+      sub('miku:status', cb),
     /** Spec-check (disk/ram/gpu/net/arch) before offering the embedded-Python setup. */
     preflight: (): Promise<Verdict> => ipcRenderer.invoke('miku:preflight'),
     /** Download+install embedded Python + torch + RVC model into userData (idempotent). */

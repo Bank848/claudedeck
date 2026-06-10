@@ -18,7 +18,7 @@ import { useMikuPreflight, summarize, progressLabel } from '@/settings/mikuPrefl
 import { useUpdater } from '@/settings/updater'
 import { buildVoiceCatalog, findVoiceChoice, VOICE_GROUPS, type VoiceChoice } from '@/settings/voiceCatalog'
 import { estimateUsage, clearCachedData, formatBytes } from '@/settings/storage'
-import { getAppInfo, checkForUpdate, openExternal, reportBugUrl, type AppInfo } from '@/settings/appInfo'
+import { getAppInfo, openExternal, reportBugUrl, type AppInfo } from '@/settings/appInfo'
 import { Toggle, Segmented, Select, Slider } from '@/components/controls'
 import { ToolRulesEditor, RuleList } from '@/components/controls/ToolRulesEditor'
 import { DirScopeEditor } from '@/components/controls/DirScopeEditor'
@@ -58,52 +58,11 @@ export default function SettingsView({
   const [cacheUsage, setCacheUsage] = useState(0)
   const [clearing, setClearing] = useState(false)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
-  const [updateMsg, setUpdateMsg] = useState('')
 
   useEffect(() => {
     void estimateUsage().then(setCacheUsage)
     void getAppInfo().then(setAppInfo)
   }, [])
-
-  // Dev runs and the portable zip build have no `app-update.yml` → the in-app
-  // updater reports 'unsupported'. Fall back to the REST "latest release" check and
-  // open the Releases page, so those users still learn about (and can grab) updates.
-  useEffect(() => {
-    if (updater.phase !== 'unsupported') return
-    void (async () => {
-      setUpdateMsg('กำลังเช็ก…')
-      const r = await checkForUpdate()
-      setUpdateMsg(
-        !r.ok
-          ? `เช็กไม่ได้: ${r.error ?? ''}`
-          : r.hasUpdate
-            ? `มีเวอร์ชันใหม่ v${r.latest} — เปิดหน้าดาวน์โหลดให้แล้ว`
-            : 'เป็นเวอร์ชันล่าสุดแล้ว ✓',
-      )
-      if (r.ok && r.hasUpdate && r.url) openExternal(r.url)
-    })()
-  }, [updater.phase])
-
-  // One-line update status for the aria-live region. The packaged updater drives
-  // most states; 'idle'/'unsupported' defer to the REST-fallback `updateMsg`.
-  const updateStatusText = (() => {
-    switch (updater.phase) {
-      case 'checking':
-        return 'กำลังเช็ก…'
-      case 'available':
-        return `มีเวอร์ชันใหม่ v${updater.version} — กดดาวน์โหลด`
-      case 'downloading':
-        return `กำลังดาวน์โหลด… ${updater.percent}%`
-      case 'downloaded':
-        return 'ดาวน์โหลดเสร็จ — รีสตาร์ทเพื่อติดตั้ง'
-      case 'none':
-        return 'เป็นเวอร์ชันล่าสุดแล้ว ✓'
-      case 'error':
-        return `เช็กไม่ได้: ${updater.error}`
-      default:
-        return updateMsg
-    }
-  })()
 
   const micOptions = [
     { value: '', label: 'System default' },
@@ -862,10 +821,7 @@ export default function SettingsView({
               <button
                 type="button"
                 disabled={updater.phase === 'checking' || updater.phase === 'downloading'}
-                onClick={() => {
-                  setUpdateMsg('')
-                  void updater.check()
-                }}
+                onClick={() => void updater.check()}
                 className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg disabled:opacity-50"
               >
                 <RefreshCw size={13} />
@@ -873,9 +829,9 @@ export default function SettingsView({
               </button>
             </div>
           </Row>
-          {updateStatusText && (
+          {updater.statusText && (
             <div role="status" aria-live="polite" className="px-4 py-2 text-xs text-fg-muted">
-              {updateStatusText}
+              {updater.statusText}
               {updater.phase === 'downloading' && (
                 <div
                   className="mt-1.5 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-bg"

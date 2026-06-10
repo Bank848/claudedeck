@@ -15,10 +15,10 @@
  * (large) download, so a retry after a failed run never re-fetches gigabytes.
  */
 import { join } from 'node:path'
-import { existsSync, mkdirSync, createWriteStream, rmSync } from 'node:fs'
-import { get as httpsGet } from 'node:https'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { x as extractTar } from 'tar'
+import { downloadFile } from './download'
 
 // Pinned python-build-standalone release (CPython 3.11, win x64, install_only).
 // Bump the tag + version together when refreshing; the URL shape is stable.
@@ -56,35 +56,6 @@ export function hasSystemPy(): boolean {
   }
 }
 
-/** Follow redirects (GitHub release assets 302 to a CDN) and stream to `dest`. */
-function download(url: string, dest: string, onPercent: (pct: number) => void, depth = 0): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (depth > 5) return reject(new Error('too many redirects'))
-    httpsGet(url, (res) => {
-      const code = res.statusCode ?? 0
-      if (code >= 300 && code < 400 && res.headers.location) {
-        res.resume()
-        download(res.headers.location, dest, onPercent, depth + 1).then(resolve, reject)
-        return
-      }
-      if (code !== 200) {
-        res.resume()
-        return reject(new Error(`HTTP ${code}`))
-      }
-      const total = Number(res.headers['content-length'] ?? 0)
-      let got = 0
-      const file = createWriteStream(dest)
-      res.on('data', (chunk: Buffer) => {
-        got += chunk.length
-        if (total > 0) onPercent(Math.min(99, Math.round((got / total) * 100)))
-      })
-      res.pipe(file)
-      file.on('finish', () => file.close(() => resolve()))
-      file.on('error', reject)
-    }).on('error', reject)
-  })
-}
-
 /**
  * Ensure a CPython usable for venv/pip exists. Returns the interpreter path to
  * hand to `run.bat` via `MIKU_PYTHON`, or `''` to let `run.bat` use the system
@@ -106,7 +77,7 @@ export async function ensurePython(mikuHome: string, emit: Emit): Promise<string
   if (!existsSync(mikuHome)) mkdirSync(mikuHome, { recursive: true })
   const archive = join(mikuHome, 'python.tar.gz')
   emit({ step: 'python', percent: 0, message: 'กำลังดาวน์โหลด Python…' })
-  await download(PYTHON_URL, archive, (pct) =>
+  await downloadFile(PYTHON_URL, archive, (pct) =>
     emit({ step: 'python', percent: pct, message: `กำลังดาวน์โหลด Python… ${pct}%` }),
   )
   emit({ step: 'python', percent: 99, message: 'กำลังแตกไฟล์ Python…' })

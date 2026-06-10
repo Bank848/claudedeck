@@ -2,12 +2,17 @@
  * Renderer-side in-app auto-update state (electron-updater bridge).
  *
  * Only the packaged NSIS install can auto-update. In dev and in the portable zip
- * build there's no `app-update.yml`, so `check()` resolves `{ ok:false, error:'dev' }`
- * → we mark the flow `unsupported` and the UI falls back to the GitHub Releases
- * link. `install()` quits the app to run the installer, so its promise never
- * resolves — app restart IS the success signal, not a resolved promise.
+ * build there's no `app-update.yml`, so `check()` resolves `{ ok:false, error:'dev' }`.
+ * This hook owns the fallback for that case too: it runs the REST "latest release"
+ * check and opens the GitHub Releases page, exposing the merged result via
+ * `statusText`. The view just renders `statusText` + the action buttons — no
+ * update logic leaks into the component.
+ *
+ * `install()` quits the app to run the installer, so its promise never resolves —
+ * app restart IS the success signal.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { checkForUpdate, openExternal } from './appInfo'
 
 function api() {
   return typeof window !== 'undefined' ? window.claudedeck?.updater : undefined
@@ -21,17 +26,30 @@ export type UpdaterPhase =
   | 'downloading'
   | 'downloaded'
   | 'error'
-  | 'unsupported'
 
 export interface UseUpdater {
   available: boolean
   phase: UpdaterPhase
-  version: string
   percent: number
-  error: string
+  /** One-line status for the aria-live region (covers both updater + REST paths). */
+  statusText: string
   check: () => Promise<void>
   download: () => Promise<void>
   install: () => Promise<void>
+}
+
+/** Run the dev/zip fallback: REST latest-release check + open the Releases page. */
+async function restFallback(setMsg: (s: string) => void): Promise<void> {
+  setMsg('กำลังเช็ก…')
+  const r = await checkForUpdate()
+  setMsg(
+    !r.ok
+      ? `เช็กไม่ได้: ${r.error ?? ''}`
+      : r.hasUpdate
+        ? `มีเวอร์ชันใหม่ v${r.latest} — เปิดหน้าดาวน์โหลดให้แล้ว`
+        : 'เป็นเวอร์ชันล่าสุดแล้ว ✓',
+  )
+  if (r.ok && r.hasUpdate && r.url) openExternal(r.url)
 }
 
 export function useUpdater(): UseUpdater {
@@ -40,22 +58,17 @@ export function useUpdater(): UseUpdater {
   const [version, setVersion] = useState('')
   const [percent, setPercent] = useState(0)
   const [error, setError] = useState('')
-  // setPhase from event handlers can race the check() return; a ref lets check()
-  // avoid clobbering an 'available'/'none' that already arrived via event.
-  const settled = useRef(false)
+  // Message for the dev/zip REST-fallback path (no electron-updater available).
+  const [restMsg, setRestMsg] = useState('')
 
   useEffect(() => {
     if (!u) return
     const offs = [
       u.onAvailable((v) => {
-        settled.current = true
         setVersion(v.version)
         setPhase('available')
       }),
-      u.onNone(() => {
-        settled.current = true
-        setPhase('none')
-      }),
+      u.onNone(() => setPhase('none')),
       u.onProgress((p) => {
         setPercent(Math.round(p.percent))
         setPhase('downloading')
@@ -70,22 +83,26 @@ export function useUpdater(): UseUpdater {
   }, [u])
 
   const check = useCallback(async () => {
+    setError('')
+    setRestMsg('')
+    // No bridge (browser preview) → straight to the REST fallback.
     if (!u) {
-      setPhase('unsupported')
+      await restFallback(setRestMsg)
       return
     }
-    settled.current = false
-    setError('')
     setPhase('checking')
     const r = await u.check()
-    // dev / zip build (no app-update.yml) → fall back to the Releases link.
     if (!r.ok) {
-      setPhase(r.error === 'dev' ? 'unsupported' : 'error')
-      if (r.error && r.error !== 'dev') setError(r.error)
+      // dev / zip build (no app-update.yml) → REST fallback; real error → surface it.
+      setPhase('idle')
+      if (r.error === 'dev') await restFallback(setRestMsg)
+      else {
+        setError(r.error ?? 'เช็กไม่ได้')
+        setPhase('error')
+      }
       return
     }
-    // Success: the real verdict arrives via the available/none events. If none has
-    // fired by now, stay in 'checking' until it does.
+    // Success: the verdict arrives via the available/none events.
   }, [u])
 
   const download = useCallback(async () => {
@@ -104,14 +121,24 @@ export function useUpdater(): UseUpdater {
     await u?.install()
   }, [u])
 
-  return {
-    available: !!u,
-    phase,
-    version,
-    percent,
-    error,
-    check,
-    download,
-    install,
-  }
+  const statusText = ((): string => {
+    switch (phase) {
+      case 'checking':
+        return 'กำลังเช็ก…'
+      case 'available':
+        return `มีเวอร์ชันใหม่ v${version} — กดดาวน์โหลด`
+      case 'downloading':
+        return `กำลังดาวน์โหลด… ${percent}%`
+      case 'downloaded':
+        return 'ดาวน์โหลดเสร็จ — รีสตาร์ทเพื่อติดตั้ง'
+      case 'none':
+        return 'เป็นเวอร์ชันล่าสุดแล้ว ✓'
+      case 'error':
+        return `เช็กไม่ได้: ${error}`
+      default:
+        return restMsg // idle: dev/zip REST-fallback message (or empty)
+    }
+  })()
+
+  return { available: !!u, phase, percent, statusText, check, download, install }
 }
