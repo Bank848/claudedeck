@@ -6,6 +6,7 @@ import { get as httpsGet } from 'node:https'
 import { get as httpGet } from 'node:http'
 import { EdgeTTS } from '@andresaya/edge-tts'
 import { detectClaude, startTurn, cancelTurn, cancelAllTurns, respondPermission } from './claude'
+import { classifyTurn, type Tier } from './modelClassifier'
 import type { PermissionDecision } from './permissionProtocol'
 import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from './auth'
 import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd, gitForkWorktree } from './git'
@@ -469,6 +470,15 @@ function registerIpc(): void {
         { turnId: string; id: string; decision: PermissionDecision; input?: unknown; message?: string },
     ) => ({ ok: respondPermission(turnId, id, decision, { input, message }) }),
     () => ({ ok: false }),
+  )
+  // Borderline-difficulty classifier (Task 2): a throwaway Haiku turn. classifyTurn
+  // never rejects (falls back to restingTier internally), so this resolves quickly.
+  safeHandle(
+    ipcMain,
+    'model:classify',
+    (_e, { prompt, restingTier }: { prompt: string; restingTier: Tier }) =>
+      classifyTurn(prompt, restingTier),
+    () => 'opus' as Tier,
   )
 
   // ── Auth (login/logout/status) ─────────────────────────────────────────────

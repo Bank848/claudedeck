@@ -131,6 +131,7 @@ const MODEL_ALIASES: Record<string, string> = {
   'opus-4-8': 'opus',
   'sonnet-4-6': 'sonnet',
   'haiku-4-5': 'haiku',
+  'fable-5': 'claude-fable-5',
 }
 export function toCliModel(id?: string): string | undefined {
   if (!id) return undefined

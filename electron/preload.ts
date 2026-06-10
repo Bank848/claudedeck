@@ -92,6 +92,12 @@ const api = {
       settingSources?: string
     }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('claude:start', args),
     cancelTurn: (turnId: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('claude:cancel', turnId),
+    /** One-shot Haiku difficulty classifier (only when the heuristic is borderline). */
+    classify: (
+      prompt: string,
+      restingTier: 'haiku' | 'sonnet' | 'opus' | 'fable',
+    ): Promise<'haiku' | 'sonnet' | 'opus' | 'fable'> =>
+      ipcRenderer.invoke('model:classify', { prompt, restingTier }),
     /** Answer a mid-turn tool-permission request. */
     respondPermission: (
       turnId: string,
