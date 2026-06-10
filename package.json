@@ -11,6 +11,13 @@
     "directories": {
       "output": "release/${version}"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Bank848",
+        "repo": "claudedeck"
+      }
+    ],
     "files": [
       "out/**/*",
       "package.json"
@@ -33,7 +40,8 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "zip"
       ],
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
@@ -41,7 +49,8 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": true
     }
   },
   "scripts": {

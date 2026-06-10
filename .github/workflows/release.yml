@@ -1,0 +1,33 @@
+name: release
+
+# Push a version tag → build the Windows installer (+ portable zip) and publish
+# it to GitHub Releases. electron-updater clients read the published `latest.yml`.
+on:
+  push:
+    tags: ['v*']
+
+# electron-builder's GitHub publisher needs write access to create the Release.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ── Code-sign (enable later — no rework needed) ─────────────────────
+          # Uncomment after adding the repo secrets; electron-builder picks them
+          # up automatically and signs the NSIS installer. See docs/SIGNING.md.
+          # CSC_LINK: ${{ secrets.CSC_LINK }}                 # base64-encoded .pfx
+          # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }} # .pfx password
+          # ── or Azure Trusted Signing: add azure/trusted-signing-action here ─
