@@ -14,6 +14,8 @@ import { speakSmart } from '@/settings/tts'
 import { edgeSpeak } from '@/settings/edgeTts'
 import { customSpeak } from '@/settings/customTts'
 import { useMikuServer } from '@/settings/mikuServer'
+import { useMikuPreflight, summarize, progressLabel } from '@/settings/mikuPreflight'
+import { useUpdater } from '@/settings/updater'
 import { buildVoiceCatalog, findVoiceChoice, VOICE_GROUPS, type VoiceChoice } from '@/settings/voiceCatalog'
 import { estimateUsage, clearCachedData, formatBytes } from '@/settings/storage'
 import { getAppInfo, checkForUpdate, openExternal, reportBugUrl, type AppInfo } from '@/settings/appInfo'
@@ -47,6 +49,8 @@ export default function SettingsView({
   const micMonitor = useMicMonitor(settings.micDeviceId)
   const micLevel = useMicLevel(micMonitor.recording, settings.micDeviceId)
   const miku = useMikuServer()
+  const pre = useMikuPreflight()
+  const updater = useUpdater()
   const [modelUrl, setModelUrl] = useState('')
   const [dlStatus, setDlStatus] = useState('')
   const [mikuPrompt, setMikuPrompt] = useState(false)
@@ -60,6 +64,46 @@ export default function SettingsView({
     void estimateUsage().then(setCacheUsage)
     void getAppInfo().then(setAppInfo)
   }, [])
+
+  // Dev runs and the portable zip build have no `app-update.yml` → the in-app
+  // updater reports 'unsupported'. Fall back to the REST "latest release" check and
+  // open the Releases page, so those users still learn about (and can grab) updates.
+  useEffect(() => {
+    if (updater.phase !== 'unsupported') return
+    void (async () => {
+      setUpdateMsg('กำลังเช็ก…')
+      const r = await checkForUpdate()
+      setUpdateMsg(
+        !r.ok
+          ? `เช็กไม่ได้: ${r.error ?? ''}`
+          : r.hasUpdate
+            ? `มีเวอร์ชันใหม่ v${r.latest} — เปิดหน้าดาวน์โหลดให้แล้ว`
+            : 'เป็นเวอร์ชันล่าสุดแล้ว ✓',
+      )
+      if (r.ok && r.hasUpdate && r.url) openExternal(r.url)
+    })()
+  }, [updater.phase])
+
+  // One-line update status for the aria-live region. The packaged updater drives
+  // most states; 'idle'/'unsupported' defer to the REST-fallback `updateMsg`.
+  const updateStatusText = (() => {
+    switch (updater.phase) {
+      case 'checking':
+        return 'กำลังเช็ก…'
+      case 'available':
+        return `มีเวอร์ชันใหม่ v${updater.version} — กดดาวน์โหลด`
+      case 'downloading':
+        return `กำลังดาวน์โหลด… ${updater.percent}%`
+      case 'downloaded':
+        return 'ดาวน์โหลดเสร็จ — รีสตาร์ทเพื่อติดตั้ง'
+      case 'none':
+        return 'เป็นเวอร์ชันล่าสุดแล้ว ✓'
+      case 'error':
+        return `เช็กไม่ได้: ${updater.error}`
+      default:
+        return updateMsg
+    }
+  })()
 
   const micOptions = [
     { value: '', label: 'System default' },
@@ -367,7 +411,9 @@ export default function SettingsView({
                 <button
                   type="button"
                   onClick={() => {
-                    void miku.start()
+                    // Route through the preflight gate + embedded-Python setup
+                    // (not raw start) so a machine that can't run Miku is told why.
+                    void pre.runSetup()
                     setMikuPrompt(false)
                   }}
                   className="shrink-0 rounded-md bg-accent px-2.5 py-1 font-medium text-white transition-colors hover:bg-accent-hover"
@@ -502,18 +548,63 @@ export default function SettingsView({
                         </span>
                         <button
                           type="button"
+                          disabled={pre.settingUp}
                           onClick={() =>
-                            miku.running || miku.starting ? void miku.stop() : void miku.start()
+                            miku.running || miku.starting ? void miku.stop() : void pre.runSetup()
                           }
-                          className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                          className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
                             miku.running || miku.starting
                               ? 'bg-destructive/20 text-destructive hover:bg-destructive/30'
                               : 'bg-accent text-white hover:bg-accent-hover'
                           }`}
                         >
-                          {miku.running || miku.starting ? 'หยุด' : 'เริ่ม'}
+                          {miku.running || miku.starting
+                            ? 'หยุด'
+                            : pre.settingUp
+                              ? 'กำลังติดตั้ง…'
+                              : 'เปิดเสียง Miku (RVC)'}
                         </button>
                       </li>
+
+                      {/* Preflight verdict (per-check) + embedded-Python setup progress.
+                          The aria-live region announces blocks/warnings/progress so a
+                          blind user hears why setup stalled and stays on edge-tts. */}
+                      {pre.available && (pre.verdict || pre.settingUp) && (
+                        <li className="rounded-md border border-border bg-bg/50 p-2.5">
+                          <div role="status" aria-live="polite" className="text-xs font-medium text-fg">
+                            {pre.settingUp
+                              ? progressLabel(pre.progress) || 'กำลังติดตั้ง Python + โมเดล…'
+                              : summarize(pre.verdict)}
+                          </div>
+                          {!pre.settingUp && pre.checks.length > 0 && (
+                            <ul className="mt-1.5 space-y-0.5">
+                              {pre.checks.map((c) => (
+                                <li key={c.id} className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+                                  <span aria-hidden>
+                                    {c.level === 'fail' ? '⛔' : c.level === 'warn' ? '⚠️' : '✅'}
+                                  </span>
+                                  <span>{c.detail}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {pre.settingUp && (
+                            <div
+                              className="mt-2 h-2 w-full overflow-hidden rounded-full bg-bg"
+                              role="progressbar"
+                              aria-label="ความคืบหน้าการติดตั้ง Miku"
+                              aria-valuenow={pre.progress?.percent ?? 0}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                            >
+                              <div
+                                className="h-full rounded-full bg-accent transition-[width] duration-150"
+                                style={{ width: `${pre.progress?.percent ?? 0}%` }}
+                              />
+                            </div>
+                          )}
+                        </li>
+                      )}
                     </ol>
                   ) : (
                     <p className="text-xs text-fg-muted">เปิดบนแอปเดสก์ท็อปเพื่อรัน Miku server.</p>
@@ -749,27 +840,56 @@ export default function SettingsView({
                 : 'A dark-mode desktop shell that masks the Claude Code CLI. Phase 1 (design-first) preview.'
             }
           >
-            <button
-              type="button"
-              onClick={async () => {
-                setUpdateMsg('กำลังเช็ก…')
-                const r = await checkForUpdate()
-                setUpdateMsg(
-                  !r.ok
-                    ? `เช็กไม่ได้: ${r.error ?? ''}`
-                    : r.hasUpdate
-                      ? `มีเวอร์ชันใหม่ v${r.latest} — เปิดหน้าดาวน์โหลดให้แล้ว`
-                      : 'เป็นเวอร์ชันล่าสุดแล้ว ✓',
-                )
-                if (r.ok && r.hasUpdate && r.url) openExternal(r.url)
-              }}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg"
-            >
-              <RefreshCw size={13} />
-              เช็กอัปเดต
-            </button>
+            <div className="flex items-center gap-2">
+              {updater.phase === 'available' && (
+                <button
+                  type="button"
+                  onClick={() => void updater.download()}
+                  className="rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+                >
+                  ดาวน์โหลด
+                </button>
+              )}
+              {updater.phase === 'downloaded' && (
+                <button
+                  type="button"
+                  onClick={() => void updater.install()}
+                  className="rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+                >
+                  รีสตาร์ทแล้วติดตั้ง
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={updater.phase === 'checking' || updater.phase === 'downloading'}
+                onClick={() => {
+                  setUpdateMsg('')
+                  void updater.check()
+                }}
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg disabled:opacity-50"
+              >
+                <RefreshCw size={13} />
+                เช็กอัปเดต
+              </button>
+            </div>
           </Row>
-          {updateMsg && <p className="px-4 py-2 text-xs text-fg-muted">{updateMsg}</p>}
+          {updateStatusText && (
+            <div role="status" aria-live="polite" className="px-4 py-2 text-xs text-fg-muted">
+              {updateStatusText}
+              {updater.phase === 'downloading' && (
+                <div
+                  className="mt-1.5 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-bg"
+                  role="progressbar"
+                  aria-label="ความคืบหน้าการดาวน์โหลดอัปเดต"
+                  aria-valuenow={updater.percent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div className="h-full rounded-full bg-accent" style={{ width: `${updater.percent}%` }} />
+                </div>
+              )}
+            </div>
+          )}
           <Row label="พบบั๊ก?" desc="เปิด GitHub Issue พร้อมเวอร์ชันแอป + ระบบปฏิบัติการให้อัตโนมัติ.">
             <button
               type="button"
