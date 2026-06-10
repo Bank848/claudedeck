@@ -32,6 +32,31 @@ function isNewer(a: string, b: string): boolean {
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 
+/* ── In-app auto-update (electron-updater, GitHub Releases) ────────────────── */
+// electron-updater is LAZY-imported inside getUpdater(): in v6 `autoUpdater` can
+// throw at import time when there's no `app-update.yml` (i.e. every dev run), so a
+// top-level `import 'electron-updater'` would crash `electron-vite dev`. Importing
+// it only inside the packaged-guarded handlers keeps dev startup clean.
+let updaterReady = false
+async function getUpdater() {
+  const { autoUpdater } = await import('electron-updater')
+  if (!updaterReady) {
+    updaterReady = true
+    autoUpdater.autoDownload = false // download only when the user clicks
+    autoUpdater.autoInstallOnAppQuit = true // also installs silently on a normal quit
+    autoUpdater.on('update-available', (i) =>
+      safeSend(mainWindow, 'updater:available', { version: i.version }),
+    )
+    autoUpdater.on('update-not-available', () => safeSend(mainWindow, 'updater:none', {}))
+    autoUpdater.on('download-progress', (p) =>
+      safeSend(mainWindow, 'updater:progress', { percent: p.percent }),
+    )
+    autoUpdater.on('update-downloaded', () => safeSend(mainWindow, 'updater:downloaded', {}))
+    autoUpdater.on('error', (e) => safeSend(mainWindow, 'updater:error', { error: errMsg(e) }))
+  }
+  return autoUpdater
+}
+
 /* ── Miku voice server (local Python) lifecycle ───────────────────────────── */
 // 'starting' covers the long warm-up (pip check + torch + ContentVec + RVC model
 // + faiss ≈ 20–40s) BEFORE the HTTP port accepts requests. Reporting 'ready' only
@@ -335,6 +360,42 @@ function registerIpc(): void {
       }
     },
     (e) => ({ ok: false, error: errMsg(e) }),
+  )
+
+  // In-app auto-update (electron-updater). Packaged-only: in dev there's no
+  // `app-update.yml`, and the zip/portable build has none either → both return
+  // `{ ok:false, error:'dev' }` and the renderer falls back to the Releases link.
+  safeHandle(
+    ipcMain,
+    'updater:check',
+    async () => {
+      if (!app.isPackaged) return { ok: false, error: 'dev' }
+      await (await getUpdater()).checkForUpdates()
+      return { ok: true }
+    },
+    (e) => ({ ok: false, error: errMsg(e) }),
+  )
+  safeHandle(
+    ipcMain,
+    'updater:download',
+    async () => {
+      if (!app.isPackaged) return { ok: false, error: 'dev' }
+      await (await getUpdater()).downloadUpdate()
+      return { ok: true }
+    },
+    (e) => ({ ok: false, error: errMsg(e) }),
+  )
+  safeHandle(
+    ipcMain,
+    'updater:install',
+    async () => {
+      // quitAndInstall terminates the app → this reply never reaches the renderer.
+      // The renderer must treat app-exit (not a resolved promise) as success.
+      // (false, true) = don't be silent, force-run the installer after quit.
+      if (app.isPackaged) (await getUpdater()).quitAndInstall(false, true)
+      return { ok: true }
+    },
+    () => ({ ok: false }),
   )
 
   // Free Edge-TTS (Microsoft online neural voices) — runs here in the main

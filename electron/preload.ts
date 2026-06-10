@@ -1,6 +1,25 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AuthStatus } from './auth'
 import type { GitStatus, Worktree, GitResult } from './git'
+import type { Verdict } from './mikuPreflight'
+
+/** Progress payload emitted by `miku:setup` for each bootstrap step. */
+export type MikuSetupProgress = {
+  step: 'python' | 'torch' | 'venv' | 'deps' | 'model' | 'done'
+  percent: number
+  message: string
+}
+
+/**
+ * Subscribe to a main→renderer push channel, returning an unsubscribe fn.
+ * Factors the repeated `ipcRenderer.on(...) / removeListener(...)` pair so the
+ * event-bearing API objects (updater, miku setup) stay terse.
+ */
+function sub<T>(channel: string, cb: (payload: T) => void): () => void {
+  const l = (_e: unknown, payload: T): void => cb(payload)
+  ipcRenderer.on(channel, l)
+  return () => ipcRenderer.removeListener(channel, l)
+}
 
 /**
  * Minimal, Phase-1 surface: window controls + maximize-state subscription.
@@ -30,6 +49,23 @@ const api = {
       url?: string
       hasUpdate?: boolean
     }> => ipcRenderer.invoke('app:check-update'),
+  },
+
+  /**
+   * In-app auto-update (electron-updater). `check`/`download`/`install` resolve
+   * `{ ok:false, error:'dev' }` in dev and zip builds (no `app-update.yml`) so the
+   * UI can fall back to the Releases link. `install()` quits the app to run the
+   * installer — its promise never resolves; treat app-restart as success.
+   */
+  updater: {
+    check: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('updater:check'),
+    download: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('updater:download'),
+    install: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('updater:install'),
+    onAvailable: (cb: (v: { version: string }) => void): (() => void) => sub('updater:available', cb),
+    onNone: (cb: () => void): (() => void) => sub('updater:none', cb),
+    onProgress: (cb: (p: { percent: number }) => void): (() => void) => sub('updater:progress', cb),
+    onDownloaded: (cb: () => void): (() => void) => sub('updater:downloaded', cb),
+    onError: (cb: (e: { error: string }) => void): (() => void) => sub('updater:error', cb),
   },
 
   /** Free Edge-TTS — returns base64 MP3. */
@@ -66,6 +102,12 @@ const api = {
       ipcRenderer.on('miku:status', l)
       return () => ipcRenderer.removeListener('miku:status', l)
     },
+    /** Spec-check (disk/ram/gpu/net/arch) before offering the embedded-Python setup. */
+    preflight: (): Promise<Verdict> => ipcRenderer.invoke('miku:preflight'),
+    /** Download+install embedded Python + torch + RVC model into userData (idempotent). */
+    setup: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('miku:setup'),
+    onSetupProgress: (cb: (p: MikuSetupProgress) => void): (() => void) =>
+      sub('miku:setup-progress', cb),
   },
 
   /** Real claude CLI backend (Slice A). */
