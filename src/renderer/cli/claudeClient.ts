@@ -24,6 +24,18 @@ export function cancelTurn(turnId: string): void {
 }
 
 /**
+ * Borderline-difficulty classifier (one-shot Haiku). Never throws and always resolves
+ * to a tier: with no bridge (web preview / tests) it returns the resting tier so the
+ * send proceeds unchanged.
+ */
+export async function classify(
+  prompt: string,
+  restingTier: 'haiku' | 'sonnet' | 'opus' | 'fable',
+): Promise<'haiku' | 'sonnet' | 'opus' | 'fable'> {
+  return (await bridge()?.classify?.(prompt, restingTier)) ?? restingTier
+}
+
+/**
  * Answer a mid-turn tool-permission request for this turn. Resolves to the
  * main-process result: `ok:false` means the turn was already gone (its stdin was
  * closed) so the decision could not be delivered — the caller must surface that

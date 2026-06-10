@@ -27,7 +27,7 @@ import UsageView from '@/views/usage/UsageView'
 import GuideView from '@/views/guide/GuideView'
 import SettingsView from '@/views/settings/SettingsView'
 
-import { ACTIVE_SESSION_ID, type ActivityId } from '@/mock/fixtures'
+import { ACTIVE_SESSION_ID, MODELS, type ActivityId, type Session } from '@/mock/fixtures'
 import { MODE_OPTIONS } from '@/settings/permissionModes'
 import { EFFORT_OPTIONS } from '@/settings/effortLevels'
 import { useSessions, emptySession, toStored } from '@/state/useSessions'
@@ -41,6 +41,17 @@ import type { Effort, PermissionMode, ClaudeEvent, PermissionSettings, Permissio
 import { loadPermissions, savePermissions } from '@/settings/permissionRules'
 import { PermissionPrompt } from '@/views/chat/PermissionPrompt'
 import { ForkDialog } from '@/views/chat/ForkDialog'
+import { ModelSuggestion } from '@/views/chat/ModelSuggestion'
+import { voiceToChoice } from '@/views/chat/modelSuggestionControls'
+import {
+  suggestModelHeuristic,
+  decideRouting,
+  detectErrorTrace,
+  modelIdToTier,
+  TIER_TO_MODEL_ID,
+  type Tier,
+  type RoutingDecision,
+} from '@/settings/modelRouting'
 import { defaultForkBranch } from '@/state/forkSession'
 import { gitClient } from '@/cli/gitClient'
 import { useAuth } from '@/cli/useAuth'
@@ -75,6 +86,14 @@ export default function App(): JSX.Element {
   // Fork button forks the *clicked* tab, not whatever is active.
   const [forkState, setForkState] = useState<{ defaultBranch: string; seed: string; sourceCwd: string } | null>(null)
   const [pendingSeed, setPendingSeed] = useState<{ sessionId: string; text: string } | null>(null)
+
+  // Per-turn model routing: the open confirm dialog (if any) + a resolver the dialog
+  // calls with the user's chosen tier. routePendingRef locks out a second send while a
+  // route decision (classifier await or open dialog) is in flight, so Enter/voice can't
+  // spawn a duplicate turn or a second dialog.
+  const [modelSuggestion, setModelSuggestion] = useState<{ decision: RoutingDecision; restingTier: Tier } | null>(null)
+  const routeResolveRef = useRef<((tier: Tier) => void) | null>(null)
+  const routePendingRef = useRef(false)
 
   // Probe for the claude CLI once.
   useEffect(() => {
@@ -245,6 +264,7 @@ export default function App(): JSX.Element {
     { phrases: ['model opus', 'opus', 'โมเดลโอปุส', 'โอปุส'], run: () => composerRef.current?.setModel('opus-4-8'), confirm: th ? 'โมเดลโอปุส' : 'Opus', label: '“opus” / “โอปุส”' },
     { phrases: ['model sonnet', 'sonnet', 'โมเดลซอนเน็ต', 'ซอนเน็ต'], run: () => composerRef.current?.setModel('sonnet-4-6'), confirm: th ? 'โมเดลซอนเน็ต' : 'Sonnet', label: '“sonnet” / “ซอนเน็ต”' },
     { phrases: ['model haiku', 'haiku', 'โมเดลไฮกุ', 'ไฮกุ'], run: () => composerRef.current?.setModel('haiku-4-5'), confirm: th ? 'โมเดลไฮกุ' : 'Haiku', label: '“haiku” / “ไฮกุ”' },
+    { phrases: ['model fable', 'fable', 'โมเดลเฟเบิล', 'เฟเบิล'], run: () => composerRef.current?.setModel('fable-5'), confirm: th ? 'โมเดลเฟเบิล' : 'Fable', label: '“fable” / “เฟเบิล”' },
     // Reasoning effort by spoken level (TH+EN) → drives the Composer's local effort.
     ...EFFORT_OPTIONS.map<VoiceCommand>((o) => ({
       phrases: o.phrases,
@@ -360,6 +380,18 @@ export default function App(): JSX.Element {
       }
       if (start === -1) return // no wake word spoken → ignore
       cmd = t.slice(end).trim() || t
+    }
+    // While the model-suggestion dialog is open, voice ANSWERS the dialog — and the
+    // normal model-name commands ("opus"/"haiku") are suppressed so they can't change
+    // the composer instead of confirming. Returns before the nav/composer dispatch.
+    if (modelSuggestion) {
+      const choice = voiceToChoice(cmd, modelSuggestion.decision.tier, modelSuggestion.restingTier)
+      if (choice) {
+        stopSpeaking()
+        routeResolveRef.current?.(choice)
+        void speakSmart(th ? `ใช้ ${choice}` : `Using ${choice}`, { lang: voiceCode })
+        return
+      }
     }
     // Barge-in: a fresh wake-word/command interrupts whatever Miku is reading so
     // the app responds immediately, like talking over a chatbot. Safe no-op when
@@ -491,14 +523,12 @@ export default function App(): JSX.Element {
     }
   }
 
-  const handleSend = (text: string, modelId: string, effort?: Effort): void => {
-    const sid = activeSession.id
-    // B4: ignore a second send while this session's turn is still streaming —
-    // otherwise its events would fold into the wrong (newer) assistant message.
-    if (activeSession.status === 'running') {
-      speakStatus(say(STATUS.busy))
-      return
-    }
+  // Build the user + assistant messages and spawn the live turn on `sess` with the
+  // already-chosen `modelId`. Extracted from handleSend so the silent and confirmed
+  // routing paths share one body. `sess` is captured before any routing await, so the
+  // turn always targets the session that was active when the user pressed send.
+  const runTurn = (sess: Session, text: string, modelId: string, effort?: Effort): void => {
+    const sid = sess.id
     const now = new Date().toISOString()
     const userMessage = {
       id: nextId('u'), role: 'user' as const, createdAt: now,
@@ -510,6 +540,7 @@ export default function App(): JSX.Element {
       id: nextId('a'), role: 'assistant' as const, createdAt: now,
       parts: useLive ? [] : [{ kind: 'markdown' as const, text: th ? '(ไม่พบ claude CLI — ติดตั้ง Claude Code ก่อน)' : '(claude CLI not found — install Claude Code first)' }],
       streaming: useLive,
+      model: modelId,
     }
     sessionsDispatch({ type: 'startTurn', sessionId: sid, userMessage, assistantMessage })
 
@@ -583,8 +614,8 @@ export default function App(): JSX.Element {
 
     void claudeClient
       .startTurn({
-        turnId, prompt: text, cwd: activeSession.cwd,
-        sessionId: activeSession.claudeSessionId, model: modelId, permissionMode, effort,
+        turnId, prompt: text, cwd: sess.cwd,
+        sessionId: sess.claudeSessionId, model: modelId, permissionMode, effort,
         settings: permissions,
       })
       .then((r) => {
@@ -599,6 +630,61 @@ export default function App(): JSX.Element {
           off()
         }
       })
+  }
+
+  // Resolve the model for this turn (routing), then run it. Async because the borderline
+  // classifier and the confirm dialog both await. The session is captured up front so a
+  // tab switch mid-routing can't retarget the turn.
+  const handleSend = async (text: string, modelId: string, effort?: Effort): Promise<void> => {
+    const sess = activeSession
+    // B4: ignore a second send while this session's turn is still streaming.
+    if (sess.status === 'running') {
+      speakStatus(say(STATUS.busy))
+      return
+    }
+    // Routing lock: a classifier await or open dialog is already deciding a turn.
+    if (routePendingRef.current) {
+      speakStatus(say(STATUS.busy))
+      return
+    }
+    // Routing off → behave exactly as before (use the composer's model).
+    if (settings.modelRouting === 'off') {
+      runTurn(sess, text, modelId, effort)
+      return
+    }
+
+    routePendingRef.current = true
+    try {
+      const restingTier = modelIdToTier(settings.restingModel)
+      let s = suggestModelHeuristic({ prompt: text, hasErrorTrace: detectErrorTrace(text), restingTier })
+      if (s.needsClassifier) {
+        // Announce (don't speak — would be cut off by the result's spoken "Done") that
+        // we're consulting the classifier, so a blind user isn't left in silence.
+        setLiveStatus(say({ th: 'กำลังเลือกโมเดล…', en: 'Choosing model…' }))
+        const tier = await claudeClient.classify(text, restingTier)
+        s = { ...s, tier, confidence: 'high', needsClassifier: false }
+      }
+      const decision = decideRouting(s, restingTier, settings.modelRouting, settings.routingAlwaysConfirm)
+
+      let chosenModelId = decision.modelId
+      if (decision.action === 'confirm') {
+        const chosenTier = await new Promise<Tier>((resolve) => {
+          routeResolveRef.current = resolve
+          setModelSuggestion({ decision, restingTier })
+        })
+        routeResolveRef.current = null
+        setModelSuggestion(null)
+        chosenModelId = TIER_TO_MODEL_ID[chosenTier]
+      }
+      runTurn(sess, text, chosenModelId, effort)
+    } finally {
+      routePendingRef.current = false
+    }
+  }
+
+  // The dialog (button/keyboard/voice) resolves the pending send with the chosen tier.
+  const chooseSuggestedModel = (tier: Tier): void => {
+    routeResolveRef.current?.(tier)
   }
 
   // Stop the active turn for the current session — cancels the CLI process so a
@@ -697,7 +783,7 @@ export default function App(): JSX.Element {
     if (activeSession.status !== 'idle' || !claudeOk) return
     const text = pendingSeed.text
     setPendingSeed(null)
-    handleSend(text, activeSession.model)
+    void handleSend(text, activeSession.model)
     // handleSend/activeSession intentionally read fresh each render; guarded by the id check above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSeed, activeSession, claudeOk])
@@ -857,6 +943,16 @@ export default function App(): JSX.Element {
           seed={forkState.seed}
           onConfirm={(args) => void confirmFork(args)}
           onCancel={() => setForkState(null)}
+          th={th}
+        />
+      )}
+
+      {modelSuggestion && (
+        <ModelSuggestion
+          decision={modelSuggestion.decision}
+          restingTier={modelSuggestion.restingTier}
+          onChoose={chooseSuggestedModel}
+          tierLabel={(t) => (MODELS.find((m) => m.id === TIER_TO_MODEL_ID[t])?.label ?? t).replace(/^Claude\s+/, '')}
           th={th}
         />
       )}

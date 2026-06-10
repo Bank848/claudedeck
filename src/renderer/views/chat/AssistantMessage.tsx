@@ -6,8 +6,15 @@ import { ToolCallCard } from './ToolCallCard'
 import { ThinkingBlock } from './ThinkingBlock'
 import { StreamingCursor } from './StreamingCursor'
 import { ReadAloudButton } from './ReadAloudButton'
-import type { ChatMessage } from '@/mock/fixtures'
+import { MODELS, type ChatMessage } from '@/mock/fixtures'
 import { plainSpeakableText } from '@/settings/speech'
+
+/** Short label for the per-turn model badge (e.g. "Fable 5"); '' when unknown/unset. */
+function modelBadge(id: string | undefined): string {
+  if (!id) return ''
+  const label = MODELS.find((m) => m.id === id)?.label ?? id
+  return label.replace(/^Claude\s+/, '')
+}
 
 interface AssistantMessageProps {
   message: ChatMessage
@@ -57,6 +64,14 @@ export const AssistantMessage = memo(function AssistantMessage({ message }: Assi
           <span className="text-xs text-fg-muted tabular-nums opacity-0 group-hover:opacity-100 transition-opacity">
             {formatTime(message.createdAt)}
           </span>
+          {modelBadge(message.model) && (
+            <span
+              className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-fg-muted"
+              title={`ตอบโดยโมเดล ${modelBadge(message.model)}`}
+            >
+              {modelBadge(message.model)}
+            </span>
+          )}
           <ReadAloudButton text={speakableText(message)} />
         </div>
 
