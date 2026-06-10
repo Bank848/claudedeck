@@ -7,6 +7,7 @@ interface SidebarProps {
   activeSessionId: string
   onSelectSession: (id: string) => void
   onFork?: () => void
+  onNew?: () => void
 }
 
 const TITLES: Record<ActivityId, string> = {
@@ -26,6 +27,7 @@ export function Sidebar({
   activeSessionId,
   onSelectSession,
   onFork,
+  onNew,
 }: SidebarProps): JSX.Element {
   return (
     <aside className="flex h-full min-h-0 flex-col border-r border-border bg-surface">
@@ -39,6 +41,7 @@ export function Sidebar({
           activeSessionId={activeSessionId}
           onSelectSession={onSelectSession}
           onFork={onFork}
+          onNew={onNew}
         />
       </div>
     </aside>
@@ -51,6 +54,7 @@ function SidebarBody({
   activeSessionId,
   onSelectSession,
   onFork,
+  onNew,
 }: SidebarProps): JSX.Element {
   if (activity === 'chat' || activity === 'sessions') {
     return (
@@ -59,6 +63,7 @@ function SidebarBody({
         activeSessionId={activeSessionId}
         onSelect={onSelectSession}
         onFork={onFork}
+        onNew={onNew}
       />
     )
   }

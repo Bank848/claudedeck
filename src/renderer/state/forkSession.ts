@@ -1,39 +1,41 @@
 /**
- * Pure helpers for the "fork to new worktree" feature. No React, no IPC — unit-testable.
- * Branch names produced here MUST satisfy the main-process `isValidRef` guard in
- * electron/git.ts (regex /^[^\s-][^\s~^:?*[\\]*$/ and no '..'); `isValidBranchName` below
- * mirrors that rule for the dialog's client-side guard.
+ * Pure helper for the "fork conversation" feature. No React, no IPC — unit-testable.
+ *
+ * Fork = duplicate a session into a new tab in the SAME cwd, like the Claude app:
+ * the conversation history is copied for display and the parent's claude session id
+ * is carried over so the first turn can `--resume … --fork-session` (copy the
+ * transcript to a fresh id, leaving the parent untouched). No git, no branch name.
  */
+import type { Session } from '@/mock/fixtures'
 
-/** lowercase, non-alphanumerics → dashes, collapse + trim dashes, cap length. */
-export function slugify(text: string, maxLen = 40): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, maxLen)
-    .replace(/-+$/g, '')
-}
-
-/** YYYYMMDD-HHMMSS in local time, zero-padded. */
-function stamp(now: Date): string {
-  const p = (n: number): string => String(n).padStart(2, '0')
-  return (
-    `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}` +
-    `-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`
-  )
+/** Append " (fork)" once, so re-forking a fork doesn't stack the suffix endlessly. */
+export function forkTitle(title: string): string {
+  const base = title.trim() || 'New session'
+  return base.endsWith('(fork)') ? base : `${base} (fork)`
 }
 
 /**
- * Default branch for a fork: `fork/<slug of first ~6 words of seed>`, or
- * `fork/<timestamp>` when there is no usable seed. Always a valid ref.
+ * Build the new session object for a fork. Copies messages + context for display
+ * and carries `claudeSessionId` with `forkPending` so the first turn forks the
+ * transcript. `tokens` resets to 0 (the fork bills fresh); `contextTokens` carries
+ * because the resumed context is the same size. Always idle + open.
  */
-export function defaultForkBranch(seed: string, now: Date): string {
-  const slug = slugify(seed.split(/\s+/).slice(0, 6).join(' '))
-  return slug ? `fork/${slug}` : `fork/${stamp(now)}`
-}
-
-/** Mirror of electron/git.ts isValidRef — for the dialog's Fork-button enable guard. */
-export function isValidBranchName(name: string): boolean {
-  return /^[^\s-][^\s~^:?*[\\]*$/.test(name) && !name.includes('..')
+export function buildForkedSession(source: Session, newId: string, now: Date): Session {
+  const iso = now.toISOString()
+  return {
+    id: newId,
+    title: forkTitle(source.title),
+    cwd: source.cwd,
+    status: 'idle',
+    model: source.model,
+    updatedAt: iso,
+    createdAt: iso,
+    open: true,
+    tokens: 0,
+    contextTokens: source.contextTokens ?? 0,
+    messages: [...source.messages],
+    terminalLines: [],
+    claudeSessionId: source.claudeSessionId,
+    forkPending: source.claudeSessionId ? true : undefined,
+  }
 }

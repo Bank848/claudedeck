@@ -17,7 +17,7 @@ export default function ChatView({
   onFork,
 }: {
   session: Session
-  onSend: (text: string, modelId: string, effort?: Effort) => void
+  onSend: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
   /** Stop/cancel the running turn (shown as a Stop button while busy). */
   onStop?: () => void
   composerRef?: React.Ref<ComposerHandle>

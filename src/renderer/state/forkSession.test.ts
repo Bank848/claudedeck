@@ -1,39 +1,64 @@
 import { describe, it, expect } from 'vitest'
-import { slugify, defaultForkBranch, isValidBranchName } from './forkSession'
-import { isValidRef } from '../../../electron/git'
+import { forkTitle, buildForkedSession } from './forkSession'
+import type { ChatMessage, Session } from '@/mock/fixtures'
 
-describe('slugify', () => {
-  it('lowercases and dashes non-alphanumerics', () => {
-    expect(slugify('Fix the Auth Bug!')).toBe('fix-the-auth-bug')
+const msg = (id: string): ChatMessage => ({ id, role: 'assistant', parts: [] } as unknown as ChatMessage)
+
+const source: Session = {
+  id: 's1',
+  title: 'Dark-mode settings',
+  cwd: 'D:/proj',
+  status: 'running',
+  model: 'opus-4-8',
+  updatedAt: '2026-06-10T00:00:00.000Z',
+  createdAt: '2026-06-09T00:00:00.000Z',
+  open: true,
+  tokens: 4781,
+  contextTokens: 120000,
+  messages: [msg('a'), msg('b')],
+  terminalLines: [],
+  claudeSessionId: 'claude-abc',
+}
+
+describe('forkTitle', () => {
+  it('appends (fork) once', () => {
+    expect(forkTitle('Dark-mode settings')).toBe('Dark-mode settings (fork)')
   })
-  it('collapses and trims dashes', () => {
-    expect(slugify('  a   b  ')).toBe('a-b')
+  it('does not stack the suffix when re-forking a fork', () => {
+    expect(forkTitle('Dark-mode settings (fork)')).toBe('Dark-mode settings (fork)')
   })
-  it('caps length without a trailing dash', () => {
-    expect(slugify('x'.repeat(60)).length).toBeLessThanOrEqual(40)
-    expect(slugify('aaaa '.repeat(20)).endsWith('-')).toBe(false)
+  it('falls back for an empty title', () => {
+    expect(forkTitle('   ')).toBe('New session (fork)')
   })
 })
 
-describe('defaultForkBranch', () => {
-  const now = new Date(2026, 5, 10, 0, 38, 47) // 2026-06-10 00:38:47 local
-  it('derives a fork/<slug> from the seed', () => {
-    expect(defaultForkBranch('Refactor the session reducer', now)).toBe('fork/refactor-the-session-reducer')
-  })
-  it('uses a timestamp when the seed is empty', () => {
-    expect(defaultForkBranch('   ', now)).toBe('fork/20260610-003847')
-  })
-  it('produces names that pass the main-process isValidRef guard', () => {
-    expect(isValidRef(defaultForkBranch('Fix the Auth Bug!', now))).toBe(true)
-    expect(isValidRef(defaultForkBranch('', now))).toBe(true)
-  })
-})
+describe('buildForkedSession', () => {
+  const now = new Date('2026-06-10T20:44:39.000Z')
+  const fork = buildForkedSession(source, 's2', now)
 
-describe('isValidBranchName', () => {
-  it('accepts fork/slug, rejects spaces / leading dash / ..', () => {
-    expect(isValidBranchName('fork/fix-auth')).toBe(true)
-    expect(isValidBranchName('has space')).toBe(false)
-    expect(isValidBranchName('-leading')).toBe(false)
-    expect(isValidBranchName('a..b')).toBe(false)
+  it('keeps cwd + model and copies the conversation for display', () => {
+    expect(fork.cwd).toBe('D:/proj')
+    expect(fork.model).toBe('opus-4-8')
+    expect(fork.messages).toEqual(source.messages)
+    expect(fork.messages).not.toBe(source.messages) // a copy, not the same array
+  })
+  it('carries the parent claude session id and flags forkPending', () => {
+    expect(fork.claudeSessionId).toBe('claude-abc')
+    expect(fork.forkPending).toBe(true)
+  })
+  it('resets billing tokens but carries context occupancy', () => {
+    expect(fork.tokens).toBe(0)
+    expect(fork.contextTokens).toBe(120000)
+  })
+  it('is a fresh, idle, open tab with new timestamps', () => {
+    expect(fork.id).toBe('s2')
+    expect(fork.status).toBe('idle')
+    expect(fork.open).toBe(true)
+    expect(fork.createdAt).toBe('2026-06-10T20:44:39.000Z')
+    expect(fork.terminalLines).toEqual([])
+  })
+  it('does not flag forkPending when the parent never started a claude session', () => {
+    const fresh = buildForkedSession({ ...source, claudeSessionId: undefined }, 's3', now)
+    expect(fresh.forkPending).toBeUndefined()
   })
 })

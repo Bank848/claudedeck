@@ -82,6 +82,37 @@ export function useMikuServer(): UseMikuServer {
 }
 
 /**
+ * Auto-start the local Miku server when the custom engine is selected and a voice
+ * model is present — so reopening the app (or switching to Miku) brings the server
+ * up on its own instead of waiting for a manual trip to Settings.
+ *
+ * Fires on mount and whenever `enabled` flips true. Idempotent and conservative:
+ * - only from the `stopped` phase, so it never races a `starting`/`ready` server;
+ * - only when a model exists, so it won't spawn the heavy Python server with
+ *   nothing to render (Settings still owns the no-model download flow);
+ * - it does NOT react to later status changes, so a manual Stop within the session
+ *   is respected — it won't immediately re-launch.
+ *
+ * No-op unless `enabled` (the custom/Miku engine is selected) and the managed Miku
+ * bridge is available. Once `ready`, `useMikuPrewarm` warms the phrase cache.
+ */
+export function useMikuAutostart(enabled: boolean): void {
+  const m = api()
+  useEffect(() => {
+    if (!m || !enabled) return
+    let cancelled = false
+    void (async () => {
+      const [phase, hasModel] = await Promise.all([m.status(), m.hasModel()])
+      if (cancelled || phase !== 'stopped' || !hasModel) return
+      void m.start()
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [m, enabled])
+}
+
+/**
  * Fire a one-shot prewarm of the Miku TTS cache when the server reaches `ready`.
  *
  * Renders the fixed assistant phrases (passed in by the caller — the single

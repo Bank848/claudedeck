@@ -53,9 +53,12 @@ function patchSession(state: SessionsState, id: string, fn: (s: Session) => Sess
 export function sessionsReducer(state: SessionsState, action: SessionsAction): SessionsState {
   switch (action.type) {
     case 'startTurn':
+      // Starting any turn consumes the one-shot fork flag (it only applies to the
+      // first resume of a forked tab).
       return patchSession(state, action.sessionId, (s) => ({
         ...s,
         status: 'running',
+        forkPending: undefined,
         messages: [...s.messages, action.userMessage, action.assistantMessage],
       }))
 

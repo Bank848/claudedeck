@@ -7,7 +7,7 @@ interface TabStripProps {
   onSelect: (id: string) => void
   onNew: () => void
   onClose: (id: string) => void
-  /** Fork this tab's session into a new worktree-bound session. */
+  /** Fork this tab's conversation into a new tab (copies the chat, same cwd). */
   onFork?: (id: string) => void
 }
 
@@ -41,14 +41,15 @@ export function TabStrip({ sessions, activeSessionId, onSelect, onNew, onClose, 
                 aria-current={active ? 'page' : undefined}
                 className="flex min-w-0 items-center gap-2 py-0 pl-3 pr-1"
               >
-                <Circle size={8} className={`shrink-0 fill-current ${STATUS_COLOR[s.status]}`} />
+                <Circle size={8} className={`shrink-0 fill-current ${STATUS_COLOR[s.status]}`} aria-hidden="true" />
+                <span className="sr-only">{s.status}: </span>
                 <span className="truncate">{s.title}</span>
               </button>
               {onFork && (
                 <button
                   type="button"
-                  aria-label={`Fork ${s.title} to new worktree`}
-                  title="Fork to new worktree"
+                  aria-label={`Fork ${s.title} into a new tab`}
+                  title="Fork conversation into a new tab"
                   onClick={(e) => {
                     e.stopPropagation()
                     onFork(s.id)

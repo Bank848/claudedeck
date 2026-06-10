@@ -125,6 +125,8 @@ const api = {
         additionalDirectories?: string[]
       }
       settingSources?: string
+      forkSession?: boolean
+      images?: Array<{ mediaType: string; data: string }>
     }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('claude:start', args),
     cancelTurn: (turnId: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('claude:cancel', turnId),
     /** One-shot Haiku difficulty classifier (only when the heuristic is borderline). */

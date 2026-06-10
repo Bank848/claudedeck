@@ -179,8 +179,8 @@ export default function SettingsView({
         {/* Accessibility — first, because it is the heart of the app for blind users */}
         <Section icon={<Eye size={16} className="text-accent" />} title="การเข้าถึง (Accessibility)">
           <Row
-            label="โหมดอ่านหน้าจอ (Screen-reader mode)"
-            desc="เปิดแล้วแอปจะประกาศด้วยเสียงเมื่อเปลี่ยนหน้า/สถานะสำคัญ ผ่านลำโพง — สำหรับผู้ใช้ที่มองไม่เห็น. ค่าจะถูกจำไว้."
+            label="โหมดอ่านหน้าจอ"
+            desc="แอปจะประกาศด้วยเสียงเมื่อเปลี่ยนหน้าหรือมีสถานะสำคัญ — สำหรับผู้ใช้ที่มองไม่เห็น."
           >
             <Toggle
               label="โหมดอ่านหน้าจอ"
@@ -249,9 +249,9 @@ export default function SettingsView({
         <Section icon={<ShieldCheck size={16} className="text-accent" />} title="สิทธิ์การใช้งาน (Permissions)">
           <div className="px-4 py-3">
             <p className="mb-3 text-xs text-fg-muted">
-              กำหนดกฎว่าเครื่องมือ (tools) ไหนใช้ได้/ต้องถาม/ห้ามใช้ — แต่ละกฎคือรูปแบบหนึ่งอัน เช่น
+              กำหนดว่าเครื่องมือไหนใช้ได้เลย / ต้องถามก่อน / ห้ามใช้ — เช่น
               <span className="font-mono"> Edit</span>, <span className="font-mono">Bash(git *)</span>,
-              <span className="font-mono"> mcp__renpy__*</span>. ค่าจะถูกจำไว้และส่งให้ claude ทุกครั้ง.
+              <span className="font-mono"> mcp__renpy__*</span>.
             </p>
             <ToolRulesEditor
               allowed={permissions.allow ?? []}
@@ -270,7 +270,7 @@ export default function SettingsView({
 
           <Row
             label="โหมดเริ่มต้น (Default mode)"
-            desc="โหมดสิทธิ์เริ่มต้นที่บันทึกไว้ — โหมดที่เลือกจากแถบสถานะจะใช้แทนเฉพาะรอบนั้น."
+            desc="สิทธิ์ตั้งต้นเมื่อเปิดแอป — เปลี่ยนชั่วคราวได้จากแถบสถานะ."
           >
             <Select
               ariaLabel="โหมดเริ่มต้น"
@@ -299,7 +299,7 @@ export default function SettingsView({
         <Section icon={<Sparkles size={16} className="text-accent" />} title="การเลือกโมเดลอัตโนมัติ (Model routing)">
           <Row
             label="โหมดการเลือกโมเดล"
-            desc="ปิด = ใช้โมเดลที่เลือกเอง · แนะนำ = เด้งให้ยืนยันเมื่อควรเปลี่ยน · อัตโนมัติ = สลับให้เลย (ยกเว้นจะขึ้น Fable 5 จะถามก่อนเสมอ)."
+            desc="ปิด = ใช้โมเดลที่เลือกไว้เอง · แนะนำ = แจ้งให้ยืนยันก่อนสลับ · อัตโนมัติ = สลับให้เลย (ยกเว้น Fable 5 — ถามก่อนเสมอ)."
           >
             <Segmented
               ariaLabel="โหมดการเลือกโมเดล"
@@ -312,7 +312,7 @@ export default function SettingsView({
               ]}
             />
           </Row>
-          <Row label="โมเดลพื้นฐาน (Resting model)" desc="โมเดลตั้งต้นเมื่อไม่ต้องเปลี่ยน — ค่าแนะนำคือ Opus 4.8.">
+          <Row label="โมเดลหลัก" desc="โมเดลที่ใช้เมื่อไม่มีการสลับอัตโนมัติ — แนะนำ Opus 4.8.">
             <Select
               ariaLabel="โมเดลพื้นฐาน"
               value={settings.restingModel}

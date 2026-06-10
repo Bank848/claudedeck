@@ -71,7 +71,7 @@ export function StatusBar({
         </span>
         {typeof session.contextTokens === 'number' && session.contextTokens > 0 && (
           <span className="flex items-center gap-1.5 font-mono" title="Context window used">
-            {Math.round((session.contextTokens / windowFor(session.model)) * 100)}% ctx
+            {Math.min(100, Math.round((session.contextTokens / windowFor(session.model, session.contextTokens)) * 100))}% ctx
           </span>
         )}
       </div>

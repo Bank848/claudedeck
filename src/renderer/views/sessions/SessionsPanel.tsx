@@ -1,4 +1,4 @@
-import { GitBranch } from 'lucide-react'
+import { GitBranch, Plus } from 'lucide-react'
 import { type Session, type SessionStatus } from '@/mock/fixtures'
 
 const STATUS_DOT: Record<SessionStatus, string> = {
@@ -39,11 +39,13 @@ export default function SessionsPanel({
   activeSessionId,
   onSelect,
   onFork,
+  onNew,
 }: {
   sessions: Session[]
   activeSessionId: string
   onSelect: (id: string) => void
   onFork?: () => void
+  onNew?: () => void
 }): JSX.Element {
   if (sessions.length === 0) {
     return (
@@ -56,11 +58,23 @@ export default function SessionsPanel({
 
   return (
     <div className="flex flex-col">
+      {onNew && (
+        <button
+          type="button"
+          onClick={onNew}
+          aria-label="New session"
+          className="mx-2 mb-1 mt-2 flex items-center gap-1.5 rounded-md bg-accent px-2 py-1.5 text-left text-xs font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Plus size={13} className="shrink-0" />
+          <span>New session</span>
+        </button>
+      )}
       {onFork && (
         <button
           type="button"
           onClick={onFork}
-          aria-label="Fork active session to a new worktree"
+          aria-label="Fork the active conversation into a new tab"
+          title="Fork conversation — copies the chat into a new tab (Ctrl+Shift+B)"
           className="mx-2 mb-1 mt-1 flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-left text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <GitBranch size={13} className="shrink-0" />

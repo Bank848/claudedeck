@@ -32,9 +32,24 @@ export function buildInitialize(): string {
   })
 }
 
-/** The user-message envelope. The prompt is the content string and nothing else. */
-export function buildUserMessage(prompt: string): string {
-  return JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } })
+export interface ImageAttachment {
+  mediaType: string
+  /** Raw base64 (no data-URI prefix). */
+  data: string
+}
+
+/** The user-message envelope. When images are provided, content becomes a block array. */
+export function buildUserMessage(prompt: string, images?: ImageAttachment[]): string {
+  const content: unknown = images?.length
+    ? [
+        ...images.map((img) => ({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mediaType, data: img.data },
+        })),
+        { type: 'text', text: prompt },
+      ]
+    : prompt
+  return JSON.stringify({ type: 'user', message: { role: 'user', content } })
 }
 
 /**

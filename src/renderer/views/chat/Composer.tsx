@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
-import { ArrowUp, Mic, GitBranch, Square } from 'lucide-react'
+import { ArrowUp, Mic, GitBranch, Square, X } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
 import { ModePicker } from '@/components/controls/ModePicker'
 import { EffortPicker } from '@/components/controls/EffortPicker'
@@ -20,11 +20,17 @@ export interface ComposerHandle {
   setEffort: (effort?: Effort) => void
 }
 
+interface ImageDraft {
+  mediaType: string
+  data: string      // raw base64, no data-URI prefix
+  preview: string   // data-URI for <img src>
+}
+
 interface ComposerProps {
   /** Session model label, used to seed the initial selection. */
   model: string
-  /** Called with the message text + selected model id + effort when the user sends. */
-  onSend: (text: string, modelId: string, effort?: Effort) => void
+  /** Called with the message text + selected model id + effort + images when the user sends. */
+  onSend: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
   /** True while this session's turn is streaming — blocks a second send (B4). */
   busy?: boolean
   /** Stop/cancel the running turn; the send button becomes a Stop button while busy (#2). */
@@ -36,7 +42,7 @@ interface ComposerProps {
   onChangePermission: (mode: PermissionMode) => void
   /** Retarget the active session cwd (Add folder). */
   onSetCwd: (path: string) => void
-  /** Fork to a new worktree session, seeding it with the current draft text. */
+  /** Fork the conversation into a new tab, seeding it with the current draft text. */
   onFork?: (seedText: string) => void
 }
 
@@ -53,8 +59,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const th = resolveLang(settings.voiceLang).short === 'th'
   const [value, setValue] = useState('')
   const [modelId, setModelId] = useState(() => seedModelId(model))
-  // undefined = Auto: no --effort flag, the CLI uses its own default.
   const [effort, setEffort] = useState<Effort | undefined>(undefined)
+  const [images, setImages] = useState<ImageDraft[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const resize = (): void => {
@@ -70,11 +76,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }, resolveLang(settings.voiceLang).code)
 
   const submit = (): void => {
-    if (busy) return // B4: turn in flight — ignore Enter / button / voice "ส่ง"
+    if (busy) return
     const text = value.trim()
-    if (!text) return
-    onSend(text, modelId, effort)
+    if (!text && images.length === 0) return
+    onSend(text, modelId, effort, images.length ? images.map(({ mediaType, data }) => ({ mediaType, data })) : undefined)
     setValue('')
+    setImages([])
     requestAnimationFrame(resize)
   }
 
@@ -82,6 +89,28 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     setValue((v) => (v.startsWith('/') ? v : `/${v}`))
     textareaRef.current?.focus()
     requestAnimationFrame(resize)
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const items = Array.from(e.clipboardData.items)
+    const imageItems = items.filter((item) => item.type.startsWith('image/'))
+    if (imageItems.length === 0) return
+    e.preventDefault()
+    imageItems.forEach((item) => {
+      const file = item.getAsFile()
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        const dataUri = ev.target?.result as string
+        // dataUri = "data:<mediaType>;base64,<data>"
+        const commaIdx = dataUri.indexOf(',')
+        const header = dataUri.slice(0, commaIdx)         // "data:image/png;base64"
+        const data = dataUri.slice(commaIdx + 1)          // raw base64
+        const mediaType = header.replace('data:', '').replace(';base64', '')
+        setImages((prev) => [...prev, { mediaType, data, preview: dataUri }])
+      }
+      reader.readAsDataURL(file)
+    })
   }
 
   useImperativeHandle(ref, () => ({ submit, setModel: setModelId, setEffort }))
@@ -93,7 +122,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }
 
-  const canSend = !busy && value.trim().length > 0
+  const canSend = !busy && (value.trim().length > 0 || images.length > 0)
   const showMic = settings.speechToText && dictation.supported
 
   return (
@@ -101,6 +130,29 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       <div className="mx-auto max-w-3xl">
         {/* Input area */}
         <div className="flex flex-col rounded-lg border border-border bg-bg transition-colors focus-within:border-border-strong">
+          {/* Image thumbnails */}
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-2">
+              {images.map((img, i) => (
+                <div key={i} className="relative">
+                  <img
+                    src={img.preview}
+                    alt={`Attached image ${i + 1}`}
+                    className="h-16 w-16 rounded-md object-cover border border-border"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setImages((prev) => prev.filter((_, idx) => idx !== i))}
+                    aria-label={`Remove image ${i + 1}`}
+                    className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-white"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <textarea
             ref={textareaRef}
             value={value}
@@ -109,6 +161,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               resize()
             }}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            aria-label="Message Claude"
             placeholder={busy ? 'Working…' : dictation.listening ? 'Listening…' : 'Message Claude…'}
             rows={1}
             className="min-h-[44px] max-h-[200px] w-full resize-none bg-transparent px-4 py-3 text-sm text-fg placeholder:text-fg-muted focus:outline-none leading-relaxed"
@@ -142,8 +196,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 <button
                   type="button"
                   onClick={() => onFork(value.trim())}
-                  aria-label="Fork to new worktree with this message"
-                  title="Fork to new worktree (carry this message)"
+                  aria-label="Fork the conversation into a new tab with this message"
+                  title="Fork conversation into a new tab (carry this message)"
                   className="flex h-7 w-7 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   <GitBranch size={15} />
@@ -186,9 +240,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </div>
 
         {/* Hint row */}
-        <p className="mt-1.5 text-center text-xs text-fg-muted opacity-60">
+        <p className="mt-1.5 text-center text-xs text-fg-muted">
           Shift+Enter for new line · <span className="font-mono">/</span> for skills
-          {showMic && ' · 🎙 mic to dictate'}
+          {showMic && ' · mic to dictate'}
         </p>
       </div>
     </div>

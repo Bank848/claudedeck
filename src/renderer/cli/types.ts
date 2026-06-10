@@ -125,6 +125,12 @@ export interface PermissionSettings {
   additionalDirectories?: string[]
 }
 
+export interface ImageAttachment {
+  mediaType: string
+  /** Raw base64, no data-URI prefix. */
+  data: string
+}
+
 export interface StartTurnRequest {
   turnId: string
   prompt: string
@@ -144,4 +150,8 @@ export interface StartTurnRequest {
   settings?: PermissionSettings
   /** Which config layers to load (`--setting-sources`). */
   settingSources?: string
+  /** Fork the resumed session into a new id (`--fork-session`) instead of appending. */
+  forkSession?: boolean
+  /** Images to send as content blocks alongside the prompt. */
+  images?: ImageAttachment[]
 }

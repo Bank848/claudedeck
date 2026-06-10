@@ -7,7 +7,7 @@ import { useLocalVoice } from '@/settings/localVoice'
 import { plainSpeakableText, resolveLang } from '@/settings/speech'
 import { speakSmart, cancelSmart } from '@/settings/tts'
 import { VIEW_NAMES, STATUS, collectPrewarmPhrases } from '@/settings/prewarmPhrases'
-import { useMikuPrewarm } from '@/settings/mikuServer'
+import { useMikuPrewarm, useMikuAutostart } from '@/settings/mikuServer'
 import { VoiceControlIndicator } from '@/components/VoiceControlIndicator'
 
 import { TitleBar } from '@/layout/TitleBar'
@@ -37,10 +37,9 @@ import type { ComposerHandle } from '@/views/chat/Composer'
 import * as claudeClient from '@/cli/claudeClient'
 import { permissionResponseOutcome } from '@/cli/permissionOutcome'
 import { startActiveTurn, endActiveTurn, activeTurnFor, type ActiveTurns } from '@/state/activeTurns'
-import type { Effort, PermissionMode, ClaudeEvent, PermissionSettings, PermissionRequestMsg } from '@/cli/types'
+import type { Effort, PermissionMode, ClaudeEvent, PermissionSettings, PermissionRequestMsg, ImageAttachment } from '@/cli/types'
 import { loadPermissions, savePermissions } from '@/settings/permissionRules'
 import { PermissionPrompt } from '@/views/chat/PermissionPrompt'
-import { ForkDialog } from '@/views/chat/ForkDialog'
 import { ModelSuggestion } from '@/views/chat/ModelSuggestion'
 import { voiceToChoice } from '@/views/chat/modelSuggestionControls'
 import {
@@ -52,8 +51,7 @@ import {
   type Tier,
   type RoutingDecision,
 } from '@/settings/modelRouting'
-import { defaultForkBranch } from '@/state/forkSession'
-import { gitClient } from '@/cli/gitClient'
+import { buildForkedSession } from '@/state/forkSession'
 import { useAuth } from '@/cli/useAuth'
 import { LoginBanner } from '@/components/LoginBanner'
 
@@ -80,11 +78,6 @@ export default function App(): JSX.Element {
   // by session.status, so tracking the id needs no re-render). Lets Stop/voice
   // cancel a running or hung turn (#2).
   const activeTurnsRef = useRef<ActiveTurns>({})
-  // Fork-to-worktree dialog. `sourceCwd` is captured at openFork time (not read
-  // from activeSession at confirm time) so the fork targets the intended repo even
-  // if the active tab changes between opening and confirming — and so the per-tab
-  // Fork button forks the *clicked* tab, not whatever is active.
-  const [forkState, setForkState] = useState<{ defaultBranch: string; seed: string; sourceCwd: string } | null>(null)
   const [pendingSeed, setPendingSeed] = useState<{ sessionId: string; text: string } | null>(null)
 
   // Per-turn model routing: the open confirm dialog (if any) + a resolver the dialog
@@ -249,7 +242,7 @@ export default function App(): JSX.Element {
     // PAUSE command below; longest-match would still collide, so use distinct words.
     // confirm:'' → handleStop speaks STATUS.stopped (only when a turn is live).
     { phrases: ['stop', 'stop turn', 'stop generating', 'cancel', 'ยกเลิก', 'หยุดงาน', 'หยุดทำงาน', 'หยุดสร้าง'], run: () => handleStop(), confirm: '', label: '“stop” / “ยกเลิก”' },
-    { phrases: ['fork', 'fork session', 'fork to worktree', 'fork branch', 'แยกเซสชัน', 'แตกเซสชัน'], run: () => openFork(), confirm: th ? 'แยกเซสชัน' : 'Fork', label: '“fork” / “แยกเซสชัน”' },
+    { phrases: ['fork', 'fork session', 'fork conversation', 'แยกเซสชัน', 'แตกเซสชัน', 'แตกบทสนทนา'], run: () => forkSession(), confirm: th ? 'แตกบทสนทนา' : 'Fork', label: '“fork” / “แตกบทสนทนา”' },
     { phrases: ['connect', 'log in', 'login', 'เชื่อมต่อ', 'เข้าสู่ระบบ', 'ล็อกอิน'], run: () => { void auth.login() }, confirm: th ? 'กำลังเชื่อมต่อ' : 'Connecting', label: '“connect” / “เชื่อมต่อ”' },
     { phrases: ['disconnect', 'log out', 'logout', 'ตัดการเชื่อมต่อ', 'ออกจากระบบ'], run: () => { void auth.logout() }, confirm: th ? 'ออกจากระบบแล้ว' : 'Disconnected', label: '“disconnect” / “ออกจากระบบ”' },
     { phrases: ['quiet', 'silence', 'be quiet', 'เงียบ', 'เงียบ ๆ'], run: stopSpeaking, confirm: '', label: '“quiet” / “เงียบ”' },
@@ -321,6 +314,10 @@ export default function App(): JSX.Element {
   const prewarmList = collectPrewarmPhrases({
     extraConfirms: [...commands, pauseCmd, resumeCmd, closeCmd].map((c) => c.confirm),
   })
+  // Bring the Miku server up automatically when the custom engine is the active
+  // voice (on app open or when the user switches to it), so it's already warming
+  // by the time a read-aloud is needed — no manual Settings → Start required.
+  useMikuAutostart(settings.ttsEngine === 'custom')
   useMikuPrewarm(settings.ttsEngine === 'custom', prewarmList)
 
   // When paused, only resume/close are honoured; otherwise the full set.
@@ -422,12 +419,12 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [settings.voiceCommands, update])
 
-  // Ctrl+Shift+B → open the Fork dialog (fork the active session to a new worktree).
+  // Ctrl+Shift+B → fork the active conversation into a new tab (copy, no git).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.ctrlKey && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
         e.preventDefault()
-        openFork()
+        forkSession()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -464,7 +461,7 @@ export default function App(): JSX.Element {
   }, [useLocalStt, startTalk, stopTalk])
 
   const speakStatus = (text: string): void => {
-    if (!text) return
+    if (!text || !settings.screenReaderMode) return
     setLiveStatus(text)
     void speakSmart(text, {
       rate: settings.speechRate,
@@ -527,7 +524,7 @@ export default function App(): JSX.Element {
   // already-chosen `modelId`. Extracted from handleSend so the silent and confirmed
   // routing paths share one body. `sess` is captured before any routing await, so the
   // turn always targets the session that was active when the user pressed send.
-  const runTurn = (sess: Session, text: string, modelId: string, effort?: Effort): void => {
+  const runTurn = (sess: Session, text: string, modelId: string, effort?: Effort, images?: ImageAttachment[]): void => {
     const sid = sess.id
     const now = new Date().toISOString()
     const userMessage = {
@@ -617,6 +614,9 @@ export default function App(): JSX.Element {
         turnId, prompt: text, cwd: sess.cwd,
         sessionId: sess.claudeSessionId, model: modelId, permissionMode, effort,
         settings: permissions,
+        // First turn of a forked tab: copy the parent transcript to a new id.
+        forkSession: sess.forkPending,
+        images,
       })
       .then((r) => {
         if (!r.ok) {
@@ -635,7 +635,7 @@ export default function App(): JSX.Element {
   // Resolve the model for this turn (routing), then run it. Async because the borderline
   // classifier and the confirm dialog both await. The session is captured up front so a
   // tab switch mid-routing can't retarget the turn.
-  const handleSend = async (text: string, modelId: string, effort?: Effort): Promise<void> => {
+  const handleSend = async (text: string, modelId: string, effort?: Effort, images?: ImageAttachment[]): Promise<void> => {
     const sess = activeSession
     // B4: ignore a second send while this session's turn is still streaming.
     if (sess.status === 'running') {
@@ -649,7 +649,7 @@ export default function App(): JSX.Element {
     }
     // Routing off → behave exactly as before (use the composer's model).
     if (settings.modelRouting === 'off') {
-      runTurn(sess, text, modelId, effort)
+      runTurn(sess, text, modelId, effort, images)
       return
     }
 
@@ -676,7 +676,7 @@ export default function App(): JSX.Element {
         setModelSuggestion(null)
         chosenModelId = TIER_TO_MODEL_ID[chosenTier]
       }
-      runTurn(sess, text, chosenModelId, effort)
+      runTurn(sess, text, chosenModelId, effort, images)
     } finally {
       routePendingRef.current = false
     }
@@ -746,33 +746,20 @@ export default function App(): JSX.Element {
     }
   }
 
-  // ── Fork to a new git-worktree-bound session ─────────────────────────────
-  const openFork = (seed?: string, sourceCwd?: string): void => {
-    setForkState({
-      defaultBranch: defaultForkBranch(seed ?? '', new Date()),
-      seed: seed ?? '',
-      sourceCwd: sourceCwd ?? activeSession.cwd,
-    })
-  }
-
-  const confirmFork = async ({ branch, seed }: { branch: string; seed: string }): Promise<void> => {
-    if (!forkState) return
-    const r = await gitClient.forkWorktree({ cwd: forkState.sourceCwd, branch })
-    if (!r.ok || !r.path) {
-      speakStatus(say({ th: `แยกไม่สำเร็จ: ${r.error ?? ''}`, en: `Fork failed: ${r.error ?? 'unknown error'}` }))
-      return // keep dialog open
-    }
+  // ── Fork a conversation into a new tab (Claude-app style: copy session, no git) ─
+  // Duplicates the source session in the SAME cwd, copies its history for display,
+  // and carries the parent's claude session id with `forkPending` so the first turn
+  // runs `--resume … --fork-session` — the CLI copies the transcript to a fresh id,
+  // leaving the parent untouched. `sourceId` defaults to the active tab so the voice
+  // command and shortcut fork what the user is looking at.
+  const forkSession = (seed?: string, sourceId?: string): void => {
+    const source = sessionsRef.current.find((s) => s.id === (sourceId ?? activeSessionId)) ?? activeSession
     const id = nextId('s')
-    const now = new Date().toISOString()
-    sessionsDispatch({
-      type: 'createSession',
-      session: { ...emptySession(id), cwd: r.path, title: branch, updatedAt: now, createdAt: now },
-    })
+    sessionsDispatch({ type: 'createSession', session: buildForkedSession(source, id, new Date()) })
     setActiveSessionId(id)
     setActivity('chat')
-    if (seed.trim()) setPendingSeed({ sessionId: id, text: seed.trim() })
-    setForkState(null)
-    speakStatus(say({ th: `แยกไปเซสชันใหม่ branch ${branch}`, en: `Forked to new session on branch ${branch}` }))
+    if (seed?.trim()) setPendingSeed({ sessionId: id, text: seed.trim() })
+    speakStatus(say({ th: 'แตกบทสนทนาไปแท็บใหม่แล้ว', en: 'Forked the conversation into a new tab' }))
   }
 
   // Deliver a fork's starting prompt once the new session is active, idle and the
@@ -820,7 +807,7 @@ export default function App(): JSX.Element {
             permissionMode={permissionMode}
             onChangePermission={setPermissionMode}
             onSetCwd={(path) => sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
-            onFork={(text) => openFork(text)}
+            onFork={(text) => forkSession(text)}
           />
         )
     }
@@ -869,7 +856,8 @@ export default function App(): JSX.Element {
                   sessions={sessions}
                   activeSessionId={activeSessionId}
                   onSelectSession={(id) => void reopenSession(id)}
-                  onFork={() => openFork()}
+                  onFork={() => forkSession()}
+                  onNew={newSession}
                 />
               </Panel>
               <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-accent" />
@@ -886,13 +874,9 @@ export default function App(): JSX.Element {
                     onSelect={setActiveSessionId}
                     onNew={newSession}
                     onClose={closeSessionTab}
-                    onFork={(id) => {
-                      const s = sessions.find((x) => x.id === id)
-                      setActiveSessionId(id)
-                      openFork(undefined, s?.cwd)
-                    }}
+                    onFork={(id) => forkSession(undefined, id)}
                   />
-                  <div className="min-h-0 flex-1 overflow-hidden">{centerView}</div>
+                  <main aria-label={VIEW_NAMES[activity] ? say(VIEW_NAMES[activity]) : 'Main'} className="min-h-0 flex-1 overflow-hidden">{centerView}</main>
                 </div>
               </Panel>
 
@@ -934,18 +918,10 @@ export default function App(): JSX.Element {
           request={permissionQueue[0]}
           onDecide={decidePermission}
           onAlwaysAllow={alwaysAllowPermission}
-        />
-      )}
-
-      {forkState && (
-        <ForkDialog
-          defaultBranch={forkState.defaultBranch}
-          seed={forkState.seed}
-          onConfirm={(args) => void confirmFork(args)}
-          onCancel={() => setForkState(null)}
           th={th}
         />
       )}
+
 
       {modelSuggestion && (
         <ModelSuggestion
