@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
-import type { Session } from '@/mock/fixtures'
+import type { ChatMessage, Session } from '@/mock/fixtures'
 import type { Effort, PermissionMode } from '@/cli/types'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
@@ -33,8 +33,38 @@ export default function ChatView({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [session.messages.length])
 
+  // Announce each COMPLETED assistant reply to external screen readers
+  // (NVDA/JAWS) — the message list itself has no live region, so without this a
+  // blind user never hears the answer. Announcing only on completion (not per
+  // streaming token) keeps the reader from chattering through the whole stream.
+  const [announced, setAnnounced] = useState('')
+  const announcedId = useRef<string | null>(null)
+  // Switching sessions must not announce the new session's old tail message.
+  // Runs before the announce effect below (declaration order) on a switch.
+  useEffect(() => {
+    announcedId.current = null
+    setAnnounced('')
+  }, [session.id])
+  useEffect(() => {
+    const last = session.messages[session.messages.length - 1]
+    if (!last || last.role !== 'assistant' || last.streaming) return
+    if (announcedId.current === null) {
+      // First run for this view (mount / session switch): record the already-
+      // finished tail message without announcing old history.
+      announcedId.current = last.id
+      return
+    }
+    if (announcedId.current === last.id) return
+    announcedId.current = last.id
+    const text = announceText(last)
+    if (text) setAnnounced(text)
+  }, [session.messages])
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
+      <div className="sr-only" role="status" aria-live="polite">
+        {announced}
+      </div>
       {/* Scrollable message area */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 scrollbar-thin">
         <div className="mx-auto max-w-3xl">
@@ -70,6 +100,18 @@ export default function ChatView({
       />
     </div>
   )
+}
+
+/** Screen-reader text for a finished assistant message: prose only (no code/
+ *  tool/thinking parts), truncated so the reader isn't stuck in a wall of text. */
+const ANNOUNCE_MAX_CHARS = 400
+function announceText(msg: ChatMessage): string {
+  const text = msg.parts
+    .filter((p): p is { kind: 'markdown'; text: string } => p.kind === 'markdown')
+    .map((p) => p.text)
+    .join(' ')
+    .trim()
+  return text.length > ANNOUNCE_MAX_CHARS ? `${text.slice(0, ANNOUNCE_MAX_CHARS)}…` : text
 }
 
 function EmptyState(): JSX.Element {
