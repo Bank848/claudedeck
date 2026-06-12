@@ -73,6 +73,11 @@ export function TabStrip({ sessions, activeSessionId, onSelect, onNew, onClose, 
             </div>
           )
         })}
+        {sessions.length === 0 && (
+          <div className="flex items-center px-3 text-xs text-fg-muted" role="status">
+            No open tabs — pick a session from the sidebar, or press + for a new one.
+          </div>
+        )}
       </div>
       <button
         type="button"

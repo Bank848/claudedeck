@@ -8,6 +8,11 @@ interface SidebarProps {
   onSelectSession: (id: string) => void
   onFork?: () => void
   onNew?: () => void
+  onPin?: (id: string) => void
+  onArchive?: (id: string) => void
+  onUnarchive?: (id: string) => void
+  onDelete?: (id: string) => void
+  onRename?: (id: string, title: string) => void
 }
 
 const TITLES: Record<ActivityId, string> = {
@@ -28,6 +33,11 @@ export function Sidebar({
   onSelectSession,
   onFork,
   onNew,
+  onPin,
+  onArchive,
+  onUnarchive,
+  onDelete,
+  onRename,
 }: SidebarProps): JSX.Element {
   return (
     <aside className="flex h-full min-h-0 flex-col border-r border-border bg-surface">
@@ -42,6 +52,11 @@ export function Sidebar({
           onSelectSession={onSelectSession}
           onFork={onFork}
           onNew={onNew}
+          onPin={onPin}
+          onArchive={onArchive}
+          onUnarchive={onUnarchive}
+          onDelete={onDelete}
+          onRename={onRename}
         />
       </div>
     </aside>
@@ -55,6 +70,11 @@ function SidebarBody({
   onSelectSession,
   onFork,
   onNew,
+  onPin,
+  onArchive,
+  onUnarchive,
+  onDelete,
+  onRename,
 }: SidebarProps): JSX.Element {
   if (activity === 'chat' || activity === 'sessions') {
     return (
@@ -64,6 +84,11 @@ function SidebarBody({
         onSelect={onSelectSession}
         onFork={onFork}
         onNew={onNew}
+        onPin={onPin}
+        onArchive={onArchive}
+        onUnarchive={onUnarchive}
+        onDelete={onDelete}
+        onRename={onRename}
       />
     )
   }

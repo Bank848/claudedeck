@@ -167,9 +167,11 @@ export default function App(): JSX.Element {
 
   const cycleSession = (dir: 1 | -1): void =>
     setActiveSessionId((cur) => {
-      const i = sessions.findIndex((s) => s.id === cur)
-      const next = (i + dir + sessions.length) % sessions.length
-      return sessions[next].id
+      const open = sessions.filter((s) => s.open)
+      if (open.length === 0) return cur
+      const i = open.findIndex((s) => s.id === cur)
+      const next = (i + dir + open.length) % open.length
+      return open[next].id
     })
 
   const { code: voiceCode, short: lang } = resolveLang(settings.voiceLang)
@@ -747,15 +749,21 @@ export default function App(): JSX.Element {
     speakStatus(say({ th: 'เปิดเซสชันใหม่', en: 'New session' }))
   }
   const closeSessionTab = (id: string): void => {
-    if (sessions.length <= 1) return // keep at least one
-    const idx = sessions.findIndex((s) => s.id === id)
-    sessionsDispatch({ type: 'closeSession', sessionId: id })
+    const openSessions = sessions.filter((s) => s.open)
+    const idx = openSessions.findIndex((s) => s.id === id)
+    sessionsDispatch({ type: 'closeTab', sessionId: id })
     if (id === activeSessionId) {
-      const fallback = sessions[idx + 1] ?? sessions[idx - 1]
+      // Land on another OPEN tab if one exists. If this was the last open tab,
+      // intentionally leave activeSessionId on it: the center pane keeps showing
+      // that conversation (you can keep reading / typing to resume it) while the
+      // tab strip shows the empty-state hint (Task 7). This is by design, not a bug.
+      const fallback = openSessions[idx + 1] ?? openSessions[idx - 1]
       if (fallback) setActiveSessionId(fallback.id)
     }
+    speakStatus(say({ th: 'ปิดแท็บแล้ว เซสชันยังอยู่ในแถบข้าง', en: 'Tab closed; session kept in the sidebar' }))
   }
   const reopenSession = async (id: string): Promise<void> => {
+    sessionsDispatch({ type: 'reopenTab', sessionId: id })
     setActiveSessionId(id)
     setActivity('chat')
     const s = sessions.find((x) => x.id === id)
@@ -763,6 +771,32 @@ export default function App(): JSX.Element {
       const ok = await loadHistory(id, s.claudeSessionId)
       if (!ok) speakStatus(say({ th: 'ประวัติโหลดไม่ได้ แต่คุยต่อได้', en: 'History unavailable; you can still continue' }))
     }
+  }
+  const pinSession = (id: string): void => {
+    sessionsDispatch({ type: 'togglePin', sessionId: id })
+    const s = sessionsRef.current.find((x) => x.id === id)
+    speakStatus(s?.pinned
+      ? say({ th: 'เลิกปักหมุดแล้ว', en: 'Unpinned' })
+      : say({ th: 'ปักหมุดแล้ว', en: 'Pinned' }))
+  }
+  const archiveSession = (id: string): void => {
+    sessionsDispatch({ type: 'setArchived', sessionId: id, archived: true })
+    if (id === activeSessionId) {
+      const fallback = sessions.find((s) => s.open && s.id !== id)
+      if (fallback) setActiveSessionId(fallback.id)
+    }
+    speakStatus(say({ th: 'เก็บเข้าคลังแล้ว เลิกทำได้ในหน้า Archive', en: 'Archived; undo from the Archive view' }))
+  }
+  const unarchiveSession = (id: string): void => {
+    sessionsDispatch({ type: 'setArchived', sessionId: id, archived: false })
+    speakStatus(say({ th: 'กู้คืนจากคลังแล้ว', en: 'Restored from archive' }))
+  }
+  const deleteSession = (id: string): void => {
+    sessionsDispatch({ type: 'closeSession', sessionId: id })
+    speakStatus(say({ th: 'ลบเซสชันถาวรแล้ว', en: 'Session permanently deleted' }))
+  }
+  const renameSession = (id: string, title: string): void => {
+    sessionsDispatch({ type: 'setTitle', sessionId: id, title })
   }
 
   // ── Fork a conversation into a new tab (Claude-app style: copy session, no git) ─
@@ -877,6 +911,11 @@ export default function App(): JSX.Element {
                   onSelectSession={(id) => void reopenSession(id)}
                   onFork={() => forkSession()}
                   onNew={newSession}
+                  onPin={pinSession}
+                  onArchive={archiveSession}
+                  onUnarchive={unarchiveSession}
+                  onDelete={deleteSession}
+                  onRename={renameSession}
                 />
               </Panel>
               <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-accent" />
@@ -888,7 +927,7 @@ export default function App(): JSX.Element {
               <Panel id="main" order={1} minSize={30}>
                 <div className="flex h-full min-h-0 flex-col bg-bg">
                   <TabStrip
-                    sessions={sessions}
+                    sessions={sessions.filter((s) => s.open)}
                     activeSessionId={activeSessionId}
                     onSelect={setActiveSessionId}
                     onNew={newSession}
