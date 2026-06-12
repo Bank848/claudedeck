@@ -72,7 +72,7 @@ function getUpdater(): Promise<AutoUpdater> {
 // after /v1/health returns 200 prevents the UI from inviting a POST into a server
 // that is still booting — the old code flipped "running" at spawn, so an early
 // Miku request hit connection-refused and was silently swallowed.
-type MikuPhase = 'stopped' | 'starting' | 'ready'
+type MikuPhase = 'stopped' | 'starting' | 'ready' | 'error'
 let mikuProc: ChildProcess | null = null
 let mikuPhase: MikuPhase = 'stopped'
 let mikuHealthTimer: ReturnType<typeof setTimeout> | null = null
@@ -127,23 +127,49 @@ function clearMikuHealthTimer(): void {
   }
 }
 
-/** Poll /v1/health until 200 (→ ready). Stays in 'starting' on timeout so the UI
- *  can tell the user to wait/retry rather than falsely reporting failure. */
+/** Poll /v1/health until it reports ready:true (→ ready). A 200 alone is NOT
+ *  enough: miku-server answers 200 with {ready:false, error} when the engine
+ *  failed to load — flipping to 'ready' on that would 503 every speech request
+ *  later. A reported engine error or the 90s timeout → 'error' phase so the UI
+ *  can tell the user instead of waiting forever. */
 function pollMikuHealth(deadline: number): void {
   if (!mikuProc) return // server stopped/exited while we were waiting
   if (Date.now() > deadline) {
     mikuLog('\n[ยังเริ่มไม่เสร็จใน 90 วินาที — ดู log ด้านบน หรือกดเริ่มใหม่]')
+    mikuSetPhase('error')
     return
   }
-  const req = httpGet(MIKU_HEALTH_URL, (res) => {
-    res.resume()
-    if (!mikuProc) return // stopMiku() was called while this request was in-flight
-    if (res.statusCode === 200) mikuSetPhase('ready')
-    else mikuHealthTimer = setTimeout(() => pollMikuHealth(deadline), 1000)
-  })
-  req.on('error', () => {
+  const retry = (): void => {
     mikuHealthTimer = setTimeout(() => pollMikuHealth(deadline), 1000)
+  }
+  const req = httpGet(MIKU_HEALTH_URL, (res) => {
+    let body = ''
+    res.setEncoding('utf8')
+    res.on('data', (chunk: string) => {
+      body += chunk
+    })
+    res.on('end', () => {
+      if (!mikuProc) return // stopMiku() was called while this request was in-flight
+      if (res.statusCode !== 200) return retry()
+      let health: { ready?: boolean; error?: string } = {}
+      try {
+        health = JSON.parse(body) as { ready?: boolean; error?: string }
+      } catch {
+        // non-JSON 200 — treat as not ready yet
+      }
+      if (health.ready === true) {
+        mikuSetPhase('ready')
+        return
+      }
+      if (health.error) {
+        mikuLog(`\n[เอนจินเสียงโหลดไม่สำเร็จ: ${health.error}]`)
+        mikuSetPhase('error')
+        return
+      }
+      retry() // 200 but still warming up (ready:false, no error yet)
+    })
   })
+  req.on('error', retry)
   req.setTimeout(2000, () => req.destroy())
 }
 

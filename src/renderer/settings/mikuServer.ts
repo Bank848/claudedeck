@@ -9,16 +9,19 @@ export function isMikuManaged(): boolean {
   return !!api()
 }
 
-export type MikuPhase = 'stopped' | 'starting' | 'ready'
+export type MikuPhase = 'stopped' | 'starting' | 'ready' | 'error'
 
 interface UseMikuServer {
   available: boolean
-  /** Server lifecycle: stopped → starting (warming up, port not ready) → ready. */
+  /** Server lifecycle: stopped → starting (warming up, port not ready) → ready,
+   *  or → error (engine failed to load / startup timed out). */
   phase: MikuPhase
-  /** True only once /v1/health returns 200 — safe to send a speech request. */
+  /** True only once /v1/health reports ready:true — safe to send a speech request. */
   running: boolean
   /** Spawned but still booting (pip/torch/model load). */
   starting: boolean
+  /** Startup failed (engine load error or 90s timeout) — see the server log. */
+  failed: boolean
   hasModel: boolean
   log: string
   start: () => Promise<void>
@@ -71,6 +74,7 @@ export function useMikuServer(): UseMikuServer {
     phase,
     running: phase === 'ready',
     starting: phase === 'starting',
+    failed: phase === 'error',
     hasModel,
     log,
     start,

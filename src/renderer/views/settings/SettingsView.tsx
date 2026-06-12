@@ -83,9 +83,11 @@ export default function SettingsView({
       ? 'พร้อมใช้งาน 🟢'
       : !miku.hasModel
         ? 'ขั้นต่อไป: เพิ่มไฟล์โมเดล'
-        : miku.starting
-          ? 'กำลังเริ่มเซิร์ฟเวอร์… (~30 วิ) รอสักครู่'
-          : 'ขั้นต่อไป: กดเริ่มเซิร์ฟเวอร์'
+        : miku.failed
+          ? 'เริ่มไม่สำเร็จ 🔴 ดู log แล้วลองเริ่มใหม่'
+          : miku.starting
+            ? 'กำลังเริ่มเซิร์ฟเวอร์… (~30 วิ) รอสักครู่'
+            : 'ขั้นต่อไป: กดเริ่มเซิร์ฟเวอร์'
 
   const previewActive = (): void => {
     const L = resolveLang(settings.voiceLang)
@@ -497,27 +499,35 @@ export default function SettingsView({
                       {/* ② Server — single start/stop button */}
                       <li className="flex items-center justify-between gap-3">
                         <span className="flex items-center gap-2 text-sm text-fg">
-                          <span aria-hidden>{miku.running ? '✅' : miku.starting ? '⏳' : '⬜'}</span>
+                          <span aria-hidden>
+                            {miku.running ? '✅' : miku.starting ? '⏳' : miku.failed ? '❌' : '⬜'}
+                          </span>
                           ② เซิร์ฟเวอร์:{' '}
                           {miku.running
                             ? 'กำลังทำงาน'
                             : miku.starting
                               ? 'กำลังเริ่ม… (~30 วิ)'
-                              : 'ยังไม่เริ่ม'}
+                              : miku.failed
+                                ? 'เริ่มไม่สำเร็จ — ดู log ด้านล่าง'
+                                : 'ยังไม่เริ่ม'}
                         </span>
                         <button
                           type="button"
                           disabled={pre.settingUp}
                           onClick={() =>
-                            miku.running || miku.starting ? void miku.stop() : void pre.runSetup()
+                            // 'failed' = the broken server process may still be alive —
+                            // offer Stop so the user can kill it before retrying.
+                            miku.running || miku.starting || miku.failed
+                              ? void miku.stop()
+                              : void pre.runSetup()
                           }
                           className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
-                            miku.running || miku.starting
+                            miku.running || miku.starting || miku.failed
                               ? 'bg-destructive/20 text-destructive hover:bg-destructive/30'
                               : 'bg-accent text-white hover:bg-accent-hover'
                           }`}
                         >
-                          {miku.running || miku.starting
+                          {miku.running || miku.starting || miku.failed
                             ? 'หยุด'
                             : pre.settingUp
                               ? 'กำลังติดตั้ง…'
