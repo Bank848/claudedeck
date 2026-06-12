@@ -461,8 +461,12 @@ export default function App(): JSX.Element {
   }, [useLocalStt, startTalk, stopTalk])
 
   const speakStatus = (text: string): void => {
-    if (!text || !settings.screenReaderMode) return
+    if (!text) return
+    // The sr-only aria-live region is ALWAYS fed: NVDA/JAWS users get status
+    // without needing the in-app screenReaderMode (which gates only our own TTS —
+    // the region is invisible to sighted users anyway).
     setLiveStatus(text)
+    if (!settings.screenReaderMode) return
     void speakSmart(text, {
       rate: settings.speechRate,
       pitch: settings.speechPitch,
@@ -477,19 +481,17 @@ export default function App(): JSX.Element {
   // Skip announcing the initial mount; only speak on real navigations.
   const srMounted = useRef(false)
   useEffect(() => {
-    if (!settings.screenReaderMode) {
-      srMounted.current = false
-      return
-    }
     if (!srMounted.current) {
       srMounted.current = true
       return
     }
+    // Always announce (aria-live for NVDA/JAWS); speakStatus itself gates the
+    // spoken TTS behind screenReaderMode.
     const name = VIEW_NAMES[activity]
     if (name) speakStatus(say(name))
     // speakStatus intentionally excluded: avoid re-announcing on unrelated re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activity, settings.screenReaderMode])
+  }, [activity])
 
   const announceEvent = (event: ClaudeEvent): void => {
     if (event.type === 'assistant') {
