@@ -311,8 +311,11 @@ export default function App(): JSX.Element {
   // first (cold) edge-tts + RVC render of each phrase. Only relevant with the
   // custom (Miku) engine. The per-command `confirm` strings are passed straight
   // from the live commands so the warmed text can't drift from the spoken text.
+  // Spoken when a paused user addresses the assistant with a non-command (see
+  // handleVoice); defined once so the prewarmed text can't drift from the spoken text.
+  const pausedReminder = th ? 'พักการฟังอยู่ พูดว่า ทำงานต่อ' : 'Listening is paused — say "resume"'
   const prewarmList = collectPrewarmPhrases({
-    extraConfirms: [...commands, pauseCmd, resumeCmd, closeCmd].map((c) => c.confirm),
+    extraConfirms: [...[...commands, pauseCmd, resumeCmd, closeCmd].map((c) => c.confirm), pausedReminder],
   })
   // Bring the Miku server up automatically when the custom engine is the active
   // voice (on app open or when the user switches to it), so it's already warming
@@ -320,10 +323,11 @@ export default function App(): JSX.Element {
   useMikuAutostart(settings.ttsEngine === 'custom')
   useMikuPrewarm(settings.ttsEngine === 'custom', prewarmList)
 
-  // When paused, only resume/close are honoured; otherwise the full set.
+  // When paused, only help/resume/close are honoured; otherwise the full set.
+  // help stays available so a paused user can still discover "ทำงานต่อ"/"resume".
   const liveCommands =
     voiceState === 'paused'
-      ? [resumeCmd, closeCmd]
+      ? [help, resumeCmd, closeCmd]
       : [help, resumeCmd, pauseCmd, closeCmd, ...commands]
 
   const useBrowserStt = settings.voiceCommands && settings.sttEngine === 'browser'
@@ -394,7 +398,20 @@ export default function App(): JSX.Element {
     // the app responds immediately, like talking over a chatbot. Safe no-op when
     // nothing is playing. The new command's own confirmation speaks after this.
     stopSpeaking()
-    dispatchCommand(liveCommands, cmd, voiceCode)
+    const matched = dispatchCommand(liveCommands, cmd, voiceCode)
+    // Paused + deliberately addressed (wake word heard, or push-to-talk) but the
+    // utterance matched nothing → the user likely forgot listening is paused.
+    // Remind them instead of staying silent. Always-listening WITHOUT a wake word
+    // is excluded: room chatter would otherwise trigger this constantly.
+    if (!matched && voiceState === 'paused' && (!useBrowserStt || settings.requireWakeWord)) {
+      setLiveStatus(pausedReminder)
+      void speakSmart(pausedReminder, {
+        lang: voiceCode,
+        rate: settings.speechRate,
+        pitch: settings.speechPitch,
+        voiceURI: settings.voiceURI,
+      })
+    }
   }
 
   const browserVoice = useVoiceCommands(useBrowserStt, voiceCode, handleVoice)
