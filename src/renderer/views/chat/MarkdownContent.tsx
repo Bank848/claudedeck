@@ -8,10 +8,10 @@ interface MarkdownContentProps {
 
 const components: Components = {
   h1: ({ children }) => (
-    <h1 className="mt-4 mb-2 text-xl font-semibold text-fg leading-snug">{children}</h1>
+    <h1 className="mt-4 mb-2 font-serif text-xl font-semibold text-fg leading-snug">{children}</h1>
   ),
   h2: ({ children }) => (
-    <h2 className="mt-3 mb-2 text-lg font-semibold text-fg leading-snug">{children}</h2>
+    <h2 className="mt-3 mb-2 font-serif text-lg font-semibold text-fg leading-snug">{children}</h2>
   ),
   h3: ({ children }) => (
     <h3 className="mt-3 mb-1.5 text-base font-semibold text-fg leading-snug">{children}</h3>

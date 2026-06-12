@@ -24,6 +24,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        serif: ['"Source Serif 4"', 'Georgia', 'serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       fontSize: {
@@ -34,7 +35,7 @@ const config: Config = {
         '2xl': ['24px', { lineHeight: '1.4' }],
       },
       borderRadius: {
-        DEFAULT: '8px',
+        DEFAULT: '10px',
       },
       transitionDuration: {
         DEFAULT: '200ms',

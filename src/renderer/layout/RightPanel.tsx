@@ -11,7 +11,7 @@ export function RightPanel({ session, onClose }: RightPanelProps): JSX.Element {
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-border bg-surface">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
-        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+        <span className="flex items-center gap-2 text-xs font-medium text-fg-muted">
           <ListChecks size={14} />
           Tasks &amp; Activity
         </span>

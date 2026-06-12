@@ -1,0 +1,73 @@
+/* Warm dark highlight.js palette for ClaudeDeck.
+ * Replaces github-dark.css (cool blue tones) — hues are biased warm to sit
+ * on the charcoal tokens (#262624 bg / #faf9f5 cream fg, terracotta accent).
+ * Class set covers highlight.js/lib/common output. */
+.hljs {
+  color: rgb(var(--fg));
+  background: transparent;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #8d8a82;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-tag,
+.hljs-name,
+.hljs-meta {
+  color: #e08a6e; /* terracotta (accent-hover) */
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: #b8b078; /* warm olive */
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: #d6b88a; /* sand */
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-title.function_,
+.hljs-title.class_ {
+  color: #e6c79c; /* light amber */
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-selector-pseudo {
+  color: #d9c5b2; /* warm beige */
+}
+
+.hljs-type,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-class {
+  color: #e0b774; /* gold */
+}
+
+.hljs-deletion {
+  color: rgb(var(--destructive));
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}

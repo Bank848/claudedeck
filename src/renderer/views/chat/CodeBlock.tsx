@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 // Lean build: ~37 common languages instead of the full ~190 (faster dev + smaller bundle).
 import hljs from 'highlight.js/lib/common'
-import 'highlight.js/styles/github-dark.css'
+import '@/theme/hljs-warm.css'
 import type { CodeBlockContent } from '@/mock/fixtures'
 
 interface CodeBlockProps {
@@ -41,7 +41,7 @@ export function CodeBlock({ content }: CodeBlockProps): JSX.Element {
   const label = content.filename ?? content.language
 
   return (
-    <div className="my-3 rounded-md border border-border overflow-hidden">
+    <div className="my-3 rounded-lg border border-border overflow-hidden">
       {/* Header bar */}
       <div className="flex items-center justify-between bg-surface-2 px-3 py-1.5 border-b border-border">
         <span className="font-mono text-xs text-fg-muted truncate">{label}</span>

@@ -19,7 +19,7 @@ export const UserMessage = memo(function UserMessage({ message }: UserMessagePro
   return (
     <div className="flex justify-end mb-4">
       <div className="flex flex-col items-end gap-1 max-w-[80%]">
-        <div className="rounded-2xl rounded-tr-sm bg-surface border border-border px-4 py-3 text-sm text-fg leading-relaxed">
+        <div className="rounded-xl bg-surface/60 px-4 py-3 text-sm text-fg leading-relaxed">
           {message.parts.map((part, i) => {
             if (part.kind === 'markdown') {
               return <MarkdownContent key={i} text={part.text} />

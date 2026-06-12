@@ -64,7 +64,7 @@ export function ToolCallCard({ call }: ToolCallCardProps): JSX.Element {
   const hasOutput = Boolean(call.output)
 
   return (
-    <div className="my-1.5 rounded-md border border-border overflow-hidden">
+    <div className="my-1.5 rounded-lg border border-border overflow-hidden">
       <button
         type="button"
         onClick={() => { if (hasOutput) setExpanded((e) => !e) }}

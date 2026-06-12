@@ -31,7 +31,7 @@ export function Sidebar({
 }: SidebarProps): JSX.Element {
   return (
     <aside className="flex h-full min-h-0 flex-col border-r border-border bg-surface">
-      <div className="flex h-9 shrink-0 items-center px-3 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+      <div className="flex h-9 shrink-0 items-center px-3 text-xs font-medium text-fg-muted">
         {TITLES[activity]}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">

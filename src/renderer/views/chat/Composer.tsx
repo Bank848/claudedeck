@@ -129,7 +129,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     <div className="shrink-0 border-t border-border bg-surface px-4 py-3">
       <div className="mx-auto max-w-3xl">
         {/* Input area */}
-        <div className="flex flex-col rounded-lg border border-border bg-bg transition-colors focus-within:border-border-strong">
+        <div className="flex flex-col rounded-2xl border border-border bg-bg transition-shadow focus-within:ring-2 focus-within:ring-accent/40">
           {/* Image thumbnails */}
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-2">
