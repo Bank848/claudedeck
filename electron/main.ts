@@ -9,7 +9,7 @@ import { EdgeTTS } from '@andresaya/edge-tts'
 import { decide, type Probe } from './mikuPreflight'
 import { prepareMiku, type SetupProgress } from './mikuSetup'
 import { downloadFile } from './download'
-import { rejectUnsafeUrl } from './netGuard'
+import { rejectUnsafeUrl, rejectUnsafeUrlAllowLoopback } from './netGuard'
 import { detectClaude, startTurn, cancelTurn, cancelAllTurns, respondPermission } from './claude'
 import { classifyTurn, type Tier } from './modelClassifier'
 import type { PermissionDecision } from './permissionProtocol'
@@ -578,8 +578,9 @@ function registerIpc(): void {
       args: { url: string; voice: string; model: string; apiKey?: string; input: string },
     ): Promise<string> => {
       // HIGH-2: a renderer-supplied TTS endpoint must be public https — block
-      // SSRF to loopback/metadata/private hosts before we fetch it.
-      const bad = rejectUnsafeUrl(args.url)
+      // SSRF to metadata/private hosts before we fetch it. Loopback http is
+      // allowed here ONLY: the default Miku server lives on http://127.0.0.1:5050.
+      const bad = rejectUnsafeUrlAllowLoopback(args.url)
       if (bad) throw new Error(bad)
       const base = args.url.replace(/\/+$/, '')
       const headers: Record<string, string> = { 'content-type': 'application/json' }
