@@ -116,3 +116,32 @@ describe('session lifecycle', () => {
     expect(fromStored(legacy)).toMatchObject({ archived: false, pinned: false })
   })
 })
+
+describe('library actions', () => {
+  const open = (id: string, over = {}) => ({ ...emptySession(id), ...over })
+
+  it('closeTab sets open:false without removing the session', () => {
+    const s0 = { sessions: [open('a'), open('b')] }
+    const s1 = sessionsReducer(s0, { type: 'closeTab', sessionId: 'a' })
+    expect(s1.sessions.map((s) => s.id)).toEqual(['a', 'b'])
+    expect(s1.sessions[0].open).toBe(false)
+  })
+  it('reopenTab sets open:true', () => {
+    const s0 = { sessions: [open('a', { open: false })] }
+    expect(sessionsReducer(s0, { type: 'reopenTab', sessionId: 'a' }).sessions[0].open).toBe(true)
+  })
+  it('togglePin flips pinned', () => {
+    const s0 = { sessions: [open('a', { pinned: false })] }
+    expect(sessionsReducer(s0, { type: 'togglePin', sessionId: 'a' }).sessions[0].pinned).toBe(true)
+  })
+  it('setArchived true archives AND closes the tab', () => {
+    const s0 = { sessions: [open('a', { open: true })] }
+    const s1 = sessionsReducer(s0, { type: 'setArchived', sessionId: 'a', archived: true })
+    expect(s1.sessions[0]).toMatchObject({ archived: true, open: false })
+  })
+  it('setArchived false unarchives, leaving open untouched', () => {
+    const s0 = { sessions: [open('a', { archived: true, open: false })] }
+    const s1 = sessionsReducer(s0, { type: 'setArchived', sessionId: 'a', archived: false })
+    expect(s1.sessions[0]).toMatchObject({ archived: false, open: false })
+  })
+})

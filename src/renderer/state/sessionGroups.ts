@@ -1,0 +1,51 @@
+import type { Session } from '@/mock/fixtures'
+
+export interface SessionGroup {
+  /** Display key: the cwd basename (or 'Unknown' for blank cwd). */
+  project: string
+  /** Full cwd of the first session (for tooltip/aria). */
+  cwd: string
+  sessions: Session[]
+}
+
+function basename(cwd: string): string {
+  return cwd.split(/[/\\]/).filter(Boolean).pop() || 'Unknown'
+}
+
+/** pinned first, then most-recently-updated. Stable for equal keys. */
+function byPinThenRecency(a: Session, b: Session): number {
+  if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1
+  return (b.updatedAt || '').localeCompare(a.updatedAt || '')
+}
+
+/**
+ * Filter by archived state + a free-text query (matches title or cwd basename,
+ * case-insensitive), then bucket by project and sort within each bucket.
+ * Groups are ordered by their most-recent session.
+ */
+export function groupSessions(
+  sessions: Session[],
+  opts: { query?: string; showArchived?: boolean } = {},
+): SessionGroup[] {
+  const q = (opts.query ?? '').trim().toLowerCase()
+  const showArchived = opts.showArchived ?? false
+
+  const visible = sessions.filter((s) => {
+    if (!!s.archived !== showArchived) return false
+    if (!q) return true
+    return s.title.toLowerCase().includes(q) || basename(s.cwd).toLowerCase().includes(q)
+  })
+
+  const buckets = new Map<string, SessionGroup>()
+  for (const s of visible) {
+    const project = basename(s.cwd)
+    const g = buckets.get(project) ?? { project, cwd: s.cwd, sessions: [] }
+    g.sessions.push(s)
+    buckets.set(project, g)
+  }
+
+  const groups = [...buckets.values()]
+  for (const g of groups) g.sessions.sort(byPinThenRecency)
+  groups.sort((a, b) => byPinThenRecency(a.sessions[0], b.sessions[0]))
+  return groups
+}

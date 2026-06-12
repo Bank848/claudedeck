@@ -22,6 +22,10 @@ export type SessionsAction =
   | { type: 'setTitle'; sessionId: string; title: string }
   | { type: 'setUsage'; sessionId: string; usage: TurnUsage }
   | { type: 'loadMessages'; sessionId: string; messages: ChatMessage[]; claudeSessionId?: string }
+  | { type: 'closeTab'; sessionId: string }
+  | { type: 'reopenTab'; sessionId: string }
+  | { type: 'togglePin'; sessionId: string }
+  | { type: 'setArchived'; sessionId: string; archived: boolean }
 
 /**
  * A blank, ready-to-type session. The app boots into one of these — no mock
@@ -93,6 +97,24 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
 
     case 'closeSession':
       return { sessions: state.sessions.filter((s) => s.id !== action.sessionId) }
+
+    case 'closeTab':
+      // Soft: drop out of the tab strip, stay in the library. Never deletes.
+      return patchSession(state, action.sessionId, (s) => ({ ...s, open: false }))
+
+    case 'reopenTab':
+      return patchSession(state, action.sessionId, (s) => ({ ...s, open: true }))
+
+    case 'togglePin':
+      return patchSession(state, action.sessionId, (s) => ({ ...s, pinned: !s.pinned }))
+
+    case 'setArchived':
+      // Archiving also closes the tab (an archived session can't be "open").
+      return patchSession(state, action.sessionId, (s) => ({
+        ...s,
+        archived: action.archived,
+        open: action.archived ? false : s.open,
+      }))
 
     case 'hydrate':
       return { sessions: action.stored.map(fromStored) }
