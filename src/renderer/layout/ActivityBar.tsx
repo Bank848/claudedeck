@@ -10,24 +10,26 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { ActivityId } from '@/mock/fixtures'
+import { VIEW_NAMES } from '@/settings/prewarmPhrases'
+import { useSettings } from '@/settings/SettingsContext'
+import { resolveLang } from '@/settings/speech'
 
 interface ActivityItem {
   id: ActivityId
-  label: string
   icon: LucideIcon
 }
 
 const TOP_ITEMS: ActivityItem[] = [
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'sessions', label: 'Sessions', icon: FolderGit2 },
-  { id: 'tasks', label: 'Tasks', icon: KanbanSquare },
-  { id: 'changes', label: 'Changes', icon: GitCompare },
-  { id: 'skills', label: 'Skills', icon: Sparkles },
-  { id: 'usage', label: 'Usage', icon: Gauge },
-  { id: 'guide', label: 'Guide', icon: BookOpen },
+  { id: 'chat', icon: MessageSquare },
+  { id: 'sessions', icon: FolderGit2 },
+  { id: 'tasks', icon: KanbanSquare },
+  { id: 'changes', icon: GitCompare },
+  { id: 'skills', icon: Sparkles },
+  { id: 'usage', icon: Gauge },
+  { id: 'guide', icon: BookOpen },
 ]
 
-const BOTTOM_ITEMS: ActivityItem[] = [{ id: 'settings', label: 'Settings', icon: Settings }]
+const BOTTOM_ITEMS: ActivityItem[] = [{ id: 'settings', icon: Settings }]
 
 interface ActivityBarProps {
   activity: ActivityId
@@ -35,6 +37,10 @@ interface ActivityBarProps {
 }
 
 export function ActivityBar({ activity, onChange }: ActivityBarProps): JSX.Element {
+  // aria-labels share VIEW_NAMES with the TTS announcements (no drift): a Thai
+  // screen-reader user hears the same view name from NVDA and from Miku.
+  const { settings } = useSettings()
+  const lang = resolveLang(settings.voiceLang).short === 'th' ? 'th' : 'en'
   return (
     <nav
       className="flex shrink-0 flex-col items-center justify-between border-r border-border bg-surface py-2"
@@ -43,12 +49,12 @@ export function ActivityBar({ activity, onChange }: ActivityBarProps): JSX.Eleme
     >
       <div className="flex flex-col items-center gap-1">
         {TOP_ITEMS.map((item) => (
-          <ActivityButton key={item.id} item={item} active={activity === item.id} onChange={onChange} />
+          <ActivityButton key={item.id} item={item} lang={lang} active={activity === item.id} onChange={onChange} />
         ))}
       </div>
       <div className="flex flex-col items-center gap-1">
         {BOTTOM_ITEMS.map((item) => (
-          <ActivityButton key={item.id} item={item} active={activity === item.id} onChange={onChange} />
+          <ActivityButton key={item.id} item={item} lang={lang} active={activity === item.id} onChange={onChange} />
         ))}
       </div>
     </nav>
@@ -57,19 +63,22 @@ export function ActivityBar({ activity, onChange }: ActivityBarProps): JSX.Eleme
 
 function ActivityButton({
   item,
+  lang,
   active,
   onChange,
 }: {
   item: ActivityItem
+  lang: 'th' | 'en'
   active: boolean
   onChange: (id: ActivityId) => void
 }): JSX.Element {
   const Icon = item.icon
+  const label = VIEW_NAMES[item.id][lang]
   return (
     <button
       type="button"
-      title={item.label}
-      aria-label={item.label}
+      title={label}
+      aria-label={label}
       aria-current={active ? 'page' : undefined}
       onClick={() => onChange(item.id)}
       className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
