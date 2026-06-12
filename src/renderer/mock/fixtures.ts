@@ -113,6 +113,10 @@ export interface Session {
   createdAt?: string
   /** Whether this session is an open tab (restored on boot). */
   open?: boolean
+  /** Soft-delete: hidden from the main library, shown only in the Archive view. */
+  archived?: boolean
+  /** Pinned sessions float to the top of their project group. */
+  pinned?: boolean
   /**
    * Transient: set on a forked session so its FIRST turn passes `--fork-session`,
    * making the CLI copy the parent's transcript into a new id instead of appending

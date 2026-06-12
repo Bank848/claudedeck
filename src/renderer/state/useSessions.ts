@@ -31,15 +31,15 @@ export type SessionsAction =
  */
 export function emptySession(id: string): Session {
   const now = new Date().toISOString()
-  return { id, title: 'New session', cwd: '', status: 'idle', model: 'opus-4-8', updatedAt: now, createdAt: now, open: true, tokens: 0, contextTokens: 0, messages: [], terminalLines: [] }
+  return { id, title: 'New session', cwd: '', status: 'idle', model: 'opus-4-8', updatedAt: now, createdAt: now, open: true, archived: false, pinned: false, tokens: 0, contextTokens: 0, messages: [], terminalLines: [] }
 }
 
 export function toStored(s: Session): StoredSession {
-  return { id: s.id, claudeSessionId: s.claudeSessionId, cwd: s.cwd, title: s.title, model: s.model, tokens: s.tokens, contextTokens: s.contextTokens ?? 0, updatedAt: s.updatedAt, createdAt: s.createdAt ?? s.updatedAt, open: s.open ?? true }
+  return { id: s.id, claudeSessionId: s.claudeSessionId, cwd: s.cwd, title: s.title, model: s.model, tokens: s.tokens, contextTokens: s.contextTokens ?? 0, updatedAt: s.updatedAt, createdAt: s.createdAt ?? s.updatedAt, open: s.open ?? true, archived: s.archived ?? false, pinned: s.pinned ?? false }
 }
 
 export function fromStored(s: StoredSession): Session {
-  return { id: s.id, claudeSessionId: s.claudeSessionId, cwd: s.cwd, title: s.title, status: 'idle', model: s.model, tokens: s.tokens, contextTokens: s.contextTokens, updatedAt: s.updatedAt, createdAt: s.createdAt, open: s.open, messages: [], terminalLines: [] }
+  return { id: s.id, claudeSessionId: s.claudeSessionId, cwd: s.cwd, title: s.title, status: 'idle', model: s.model, tokens: s.tokens, contextTokens: s.contextTokens, updatedAt: s.updatedAt, createdAt: s.createdAt, open: s.open, archived: s.archived ?? false, pinned: s.pinned ?? false, messages: [], terminalLines: [] }
 }
 
 export function initialSessionsState(): SessionsState {

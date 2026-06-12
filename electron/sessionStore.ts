@@ -21,6 +21,10 @@ export interface StoredSession {
   updatedAt: string
   createdAt: string
   open: boolean
+  /** Soft-delete: hidden from the main library, shown only in the Archive view. */
+  archived?: boolean
+  /** Pinned sessions float to the top of their project group. */
+  pinned?: boolean
 }
 
 /** ~/.claude/projects — where the CLI writes per-session JSONL transcripts. */

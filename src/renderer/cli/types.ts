@@ -88,6 +88,10 @@ export interface TurnUsage {
 export interface StoredSession {
   id: string; claudeSessionId?: string; cwd: string; title: string; model: string
   tokens: number; contextTokens: number; updatedAt: string; createdAt: string; open: boolean
+  /** Soft-delete: hidden from the main library, shown only in the Archive view. */
+  archived?: boolean
+  /** Pinned sessions float to the top of their project group. */
+  pinned?: boolean
 }
 
 export type ClaudeEvent = SystemInitEvent | AssistantEvent | UserEvent | ResultEvent

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { sessionsReducer, initialSessionsState, emptySession, toStored, fromStored, type SessionsState } from './useSessions'
 import type { ChatMessage } from '@/mock/fixtures'
+import type { StoredSession } from '@/cli/types'
 
 const userMsg: ChatMessage = {
   id: 'u1', role: 'user', createdAt: '2026-06-08T00:00:00Z',
@@ -104,5 +105,14 @@ describe('session lifecycle', () => {
   it('toStored/fromStored round-trip drops messages', () => {
     const s = { ...emptySession('a'), claudeSessionId: 'uuid', tokens: 3, contextTokens: 3, createdAt: 'c', open: true }
     expect(fromStored(toStored(s))).toMatchObject({ id: 'a', tokens: 3, messages: [], claudeSessionId: 'uuid' })
+  })
+  it('toStored/fromStored carries archived + pinned', () => {
+    const s = { ...emptySession('a'), pinned: true, archived: false }
+    expect(toStored(s)).toMatchObject({ pinned: true, archived: false })
+    expect(fromStored(toStored(s))).toMatchObject({ pinned: true, archived: false })
+  })
+  it('fromStored defaults missing archived/pinned to false (old index migration-free)', () => {
+    const legacy = { id: 'x', cwd: 'D:/p', title: 'Old', model: 'opus-4-8', tokens: 0, contextTokens: 0, updatedAt: 'u', createdAt: 'c', open: true } as StoredSession
+    expect(fromStored(legacy)).toMatchObject({ archived: false, pinned: false })
   })
 })
