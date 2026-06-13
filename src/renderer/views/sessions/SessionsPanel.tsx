@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Plus, GitBranch, Pin, Archive, ArchiveRestore, Trash2, Search, ChevronDown, ChevronRight } from 'lucide-react'
 import { type Session, type SessionStatus } from '@/mock/fixtures'
-import { groupSessions } from '@/state/sessionGroups'
+import { groupSessions, recentSessions } from '@/state/sessionGroups'
+
+/** How many recently-touched sessions the "Recent" strip surfaces. */
+const RECENT_LIMIT = 5
 
 const STATUS_DOT: Record<SessionStatus, string> = {
   active: 'bg-accent', running: 'bg-success', idle: 'bg-fg-muted', error: 'bg-destructive',
@@ -44,12 +47,23 @@ export default function SessionsPanel(props: SessionsPanelProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [recentCollapsed, setRecentCollapsed] = useState(false)
 
   const groups = useMemo(
     () => groupSessions(sessions, { query, showArchived }),
     [sessions, query, showArchived],
   )
   const archivedCount = useMemo(() => sessions.filter((s) => s.archived).length, [sessions])
+  const activeCount = useMemo(() => sessions.filter((s) => !s.archived).length, [sessions])
+
+  // The Recent strip only earns its space in the default view once there are
+  // more active sessions than it shows — i.e. some are already buried in folders.
+  // It is hidden while searching (results are already a flat, ranked view) and
+  // in the archive.
+  const recent = useMemo(
+    () => (!query && !showArchived && activeCount > RECENT_LIMIT ? recentSessions(sessions, RECENT_LIMIT) : []),
+    [sessions, query, showArchived, activeCount],
+  )
 
   return (
     <div className="flex flex-col">
@@ -89,6 +103,46 @@ export default function SessionsPanel(props: SessionsPanelProps): JSX.Element {
           className="min-w-0 flex-1 bg-transparent text-xs text-fg outline-none placeholder:text-fg-muted"
         />
       </div>
+
+      {/* Recent — flat, cross-folder shortcut so freshly-used sessions don't
+          sink under crowded folders. */}
+      {recent.length > 0 && (
+        <nav aria-label="Recent sessions" className="px-1 pb-1 pt-1">
+          <section role="group" aria-label="Recent">
+            <h3 className="px-1">
+              <button
+                type="button"
+                onClick={() => setRecentCollapsed((v) => !v)}
+                aria-expanded={!recentCollapsed}
+                className="flex w-full items-center gap-1 rounded px-1 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-fg-muted transition-colors hover:text-fg"
+              >
+                {recentCollapsed ? <ChevronRight size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+                <span>Recent</span>
+                <span className="ml-auto font-normal opacity-60">{recent.length}</span>
+              </button>
+            </h3>
+            {!recentCollapsed && (
+              <ul aria-label="Recent sessions" className="mb-1 space-y-0.5 px-1">
+                {recent.map((session) => (
+                  <SessionRow
+                    key={`recent-${session.id}`}
+                    session={session}
+                    active={session.id === activeSessionId}
+                    showArchived={false}
+                    onSelect={onSelect}
+                    onPin={props.onPin}
+                    onArchive={props.onArchive}
+                    onUnarchive={props.onUnarchive}
+                    onDelete={props.onDelete}
+                    onRename={props.onRename}
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
+          <div className="mx-1 mt-1 border-t border-border" aria-hidden="true" />
+        </nav>
+      )}
 
       {groups.length === 0 ? (
         <p className="px-3 py-6 text-center text-xs text-fg-muted">
