@@ -3,15 +3,17 @@
  * alpha modifiers (e.g. bg-accent/20) via rgb(var(--x) / <alpha-value>).
  * Consume raw with rgb(var(--x)). Hex equivalents are in comments. */
 :root {
-  /* Warm charcoal palette matching the official Claude desktop app. */
-  --bg: 38 38 36; /* #262624 — warm charcoal */
-  --surface: 43 42 39; /* #2b2a27 */
-  --surface-2: 50 50 48; /* #323230 */
-  --muted: 46 45 42; /* #2e2d2a */
-  --border: 58 57 54; /* #3a3936 */
-  --border-strong: 74 72 69; /* #4a4845 */
+  /* Deep OLED near-black, warm-tinted so it still reads as Claude (not cold grey).
+   * Surfaces/borders step up off the black so panels stay distinguishable; cream
+   * --fg keeps high contrast (WCAG AAA) against the darker base. */
+  --bg: 13 13 12; /* #0d0d0c — near-black, warm tint */
+  --surface: 22 22 21; /* #161615 */
+  --surface-2: 31 30 29; /* #1f1e1d */
+  --muted: 19 19 18; /* #131312 */
+  --border: 42 41 38; /* #2a2926 */
+  --border-strong: 58 56 53; /* #3a3835 */
   --fg: 250 249 245; /* #faf9f5 — cream */
-  --fg-muted: 160 157 151; /* #a09d97 — warm grey */
+  --fg-muted: 168 165 158; /* #a8a59e — warm grey (nudged up for contrast on #0d0d0c) */
   --accent: 217 119 87; /* #d97757 — coral, fills/icons/large text only */
   --accent-hover: 224 138 110; /* #e08a6e */
   --success: 34 197 94; /* #22c55e */
