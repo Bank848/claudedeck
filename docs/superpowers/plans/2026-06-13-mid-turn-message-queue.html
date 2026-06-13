@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mid-Turn Message Queue — Plan</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: "dark", securityLevel: "loose" });</script>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3; --muted:#9da7b3;
+          --accent:#58a6ff; --add:#3fb950; --mod:#d29922; --del:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1100px; margin:0 auto; padding:32px 24px 96px; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  h2 { font-size:21px; margin:40px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  h3 { font-size:17px; margin:24px 0 8px; }
+  h4 { font-size:15px; margin:18px 0 6px; color:var(--accent); }
+  .tag { display:inline-block; font-size:12px; color:var(--muted); border:1px solid var(--border);
+         border-radius:999px; padding:2px 10px; margin-right:6px; }
+  .meta { color:var(--muted); margin:8px 0 0; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin:14px 0; }
+  .ba { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  .ba > figure { margin:0; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:12px; }
+  .ba figcaption { font-weight:600; margin-bottom:8px; color:var(--muted); }
+  .ba .before figcaption::before { content:"◀ BEFORE  "; color:var(--del); }
+  .ba .after  figcaption::before { content:"AFTER ▶  ";  color:var(--add); }
+  @media (max-width:820px){ .ba { grid-template-columns:1fr; } }
+  .mermaid { background:#0b0f14; border-radius:8px; padding:10px; overflow:auto; }
+  .changes li { list-style:none; margin:4px 0; }
+  .changes .add::before { content:"+ "; color:var(--add); font-weight:700; }
+  .changes .mod::before { content:"~ "; color:var(--mod); font-weight:700; }
+  code, pre { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+  pre { background:#0b0f14; border:1px solid var(--border); border-radius:8px; padding:12px 14px; overflow:auto; font-size:13px; }
+  code:not(pre code){ background:#0b0f14; border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:13px; }
+  ul.steps { list-style:none; padding-left:8px; }
+  ul.steps li.chk { margin:5px 0; }
+  ul.steps li.chk input { margin-right:8px; }
+  blockquote { border-left:3px solid var(--mod); margin:12px 0; padding:6px 14px; color:var(--muted);
+               background:#12161c; border-radius:0 8px 8px 0; }
+  hr.section { border:0; border-top:2px dashed var(--border); margin:48px 0; }
+  hr.rule { border:0; border-top:1px solid var(--border); margin:18px 0; }
+  .note { color:var(--muted); font-size:13px; }
+  .pill { display:inline-block; border-radius:6px; padding:1px 7px; font-size:12px; font-weight:600; }
+  .p-seq { background:#1f2d1f; color:var(--add); }
+  .p-par { background:#2d281a; color:var(--mod); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Mid-Turn Message Queue</h1>
+  <p class="meta">
+    <span class="tag">2026-06-13</span>
+    <span class="tag">plan-pro</span>
+    <span class="tag">React + TS</span>
+    <span class="tag">electron-vite</span>
+    <span class="tag">vitest</span>
+  </p>
+
+  <h2>📖 Read this first</h2>
+
+  <div class="card">
+    <strong>Goal.</strong> Let the user keep typing while a turn is running and queue follow-up
+    messages (Codex / Claude-Code style). Queued messages auto-send one at a time as separate
+    turns when the current turn finishes; you can also interrupt (stop now + send), and edit or
+    remove anything still in the queue.
+    <br><br>
+    <strong>Key decisions.</strong> The queue lives in <code>Session.queued</code> and is driven
+    by the <em>pure</em> <code>sessionsReducer</code>, so it is unit-testable. The Composer stops
+    blocking while busy — <code>Enter</code> enqueues, <code>Ctrl+Enter</code> interrupts. A single
+    <code>useEffect</code> in App watches every open session and flushes the head of its queue the
+    moment it returns to <code>idle</code> — which also covers a session left running in a
+    background tab. Model routing is bypassed for queued sends (the model was already chosen);
+    permission mode is latest-wins.
+  </div>
+
+  <h3>Before → After — control flow</h3>
+  <p class="note">Left = today a second message while busy is dropped. Right = it is queued, shown as a chip, and auto-sent.</p>
+  <div class="ba">
+    <figure class="before"><figcaption>Send while busy is blocked</figcaption>
+      <div class="mermaid">
+flowchart TD
+  U[User types while turn runs] --> E{session.status}
+  E -- running --> B[Composer.submit: if busy return]
+  B --> X[blocked - send ignored]
+  B --> S[speak STATUS.busy]
+  E -- idle --> SEND[onSend -> handleSend -> runTurn]
+      </div>
+    </figure>
+    <figure class="after"><figcaption>Queue + interrupt + auto-flush</figcaption>
+      <div class="mermaid">
+flowchart TD
+  U[User types while turn runs] --> K{Enter or Ctrl+Enter}
+  K -- Enter --> EQ[onEnqueue -> dispatch enqueue]
+  K -- "Ctrl+Enter" --> IN[interruptAndSend: cancel + enqueueFront]
+  EQ --> Q[(session.queued FIFO)]
+  IN --> Q
+  Q --> CHIP[chips: edit / remove]
+  T[turn finishes -> finishTurn -> idle] --> FX[flush useEffect]
+  FX --> DQ[dispatch removeQueued head + runTurn head]
+  Q --> FX
+      </div>
+    </figure>
+  </div>
+
+  <h3>Before → After — what the user experiences</h3>
+  <div class="ba">
+    <figure class="before"><figcaption>Second message is lost</figcaption>
+      <div class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant C as Composer
+  participant A as App
+  U->>C: type + Enter (busy)
+  C-->>U: blocked (return), speak "busy"
+  Note over U,A: second message is lost
+      </div>
+    </figure>
+    <figure class="after"><figcaption>Second message is queued then sent</figcaption>
+      <div class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant C as Composer
+  participant A as App
+  participant R as reducer/state
+  U->>C: type + Enter (busy)
+  C->>A: onEnqueue(text,model,...)
+  A->>R: dispatch enqueue
+  R-->>C: queued chip appears
+  Note over A,R: turn finishes -> status idle
+  R->>A: flush useEffect fires
+  A->>R: removeQueued(head) + runTurn(head)
+  R-->>U: queued message sent as its own turn
+      </div>
+    </figure>
+  </div>
+
+  <h3>What's changing</h3>
+  <ul class="changes">
+    <li class="mod"><code>cli/types.ts</code> — new <code>QueuedMessage</code> interface.</li>
+    <li class="mod"><code>mock/fixtures.ts</code> — <code>Session.queued?: QueuedMessage[]</code> (transient, not persisted).</li>
+    <li class="mod"><code>state/useSessions.ts</code> — <code>enqueue</code> / <code>enqueueFront</code> / <code>removeQueued</code> / <code>updateQueued</code> actions + cases.</li>
+    <li class="mod"><code>views/chat/Composer.tsx</code> — Enter→queue, Ctrl+Enter→interrupt, queue chips (edit / remove), Stop kept.</li>
+    <li class="mod"><code>views/chat/ChatView.tsx</code> — thread queue props.</li>
+    <li class="mod"><code>App.tsx</code> — <code>enqueueMessage</code> / <code>removeQueued</code> / <code>interruptAndSend</code> + auto-flush <code>useEffect</code>.</li>
+    <li class="mod"><code>state/useSessions.test.ts</code> — reducer tests for the new actions.</li>
+  </ul>
+
+  <h3>⚡ Parallelization analysis</h3>
+  <div class="card">
+    <p>The chain is mostly sequential because every UI layer depends on the type from Task&nbsp;1, and
+    Tasks&nbsp;3–5 each consume the reducer actions from Task&nbsp;2. There is one real parallel
+    opportunity once the type exists.</p>
+    <ul>
+      <li><span class="pill p-seq">SEQ</span> <strong>Task 1</strong> (types + Session field) — foundation; everything imports <code>QueuedMessage</code>. Must land first.</li>
+      <li><span class="pill p-par">PAR</span> <strong>Batch A after Task 1: Task 2 ∥ Task 3</strong> — <code>useSessions.ts</code>/<code>useSessions.test.ts</code> (Task 2) and <code>Composer.tsx</code> (Task 3) touch <em>disjoint</em> files. Composer only needs the <code>QueuedMessage</code> type + prop shapes (from Task 1), not the reducer impl, so they can run concurrently.</li>
+      <li><span class="pill p-seq">SEQ</span> <strong>Task 4</strong> (ChatView) — trivial prop threading; needs Task 3's Composer prop names. Fast.</li>
+      <li><span class="pill p-seq">SEQ</span> <strong>Task 5</strong> (App wiring + flush effect) — depends on Task 2 actions + Task 4 props. This is the integration point and the riskiest task; do it alone, last.</li>
+      <li><span class="pill p-seq">SEQ</span> <strong>Task 6</strong> — manual runtime verification, after the build is green.</li>
+    </ul>
+    <p class="note">Critical path (longest sequential chain): <strong>Task 1 → Task 2 → Task 5 → Task 6</strong>.
+       Tasks that share a file and therefore <em>cannot</em> run in parallel: none within a batch — Task 2 and Task 3 are the only concurrent pair and they edit different files. Task 5 alone edits <code>App.tsx</code>.</p>
+  </div>
+
+  <hr class="section" />
+
+  <h2>🛠 Implementation plan</h2>
+  <p class="note">For agentic workers: use <code>superpowers:subagent-driven-development</code> or
+     <code>superpowers:executing-plans</code> (or plan-pro's parallel execution). Checkboxes are display-only here — the source of truth is the <code>.md</code> next to this file.</p>
+
+<h3>File Structure</h3>
+<p><strong>Modify:</strong></p>
+<ul>
+<li><code>src/renderer/cli/types.ts</code> — add <code>QueuedMessage</code> interface.</li>
+<li><code>src/renderer/mock/fixtures.ts</code> — add <code>queued?: QueuedMessage[]</code> to <code>Session</code>.</li>
+<li><code>src/renderer/state/useSessions.ts</code> — add <code>enqueue</code> / <code>enqueueFront</code> / <code>removeQueued</code> / <code>updateQueued</code> actions + reducer cases. (No queue-clear on <code>closeSession</code> is needed — it removes the whole session, so the queue dies with it; the auto-flush effect skips non-open tabs so a soft-closed tab's queue never fires.)</li>
+<li><code>src/renderer/state/useSessions.test.ts</code> — reducer tests for the new actions.</li>
+<li><code>src/renderer/views/chat/Composer.tsx</code> — stop blocking on busy; Enter→enqueue, Ctrl+Enter→interrupt; render queue chips (edit/remove); new props.</li>
+<li><code>src/renderer/views/chat/ChatView.tsx</code> — thread new props through to Composer.</li>
+<li><code>src/renderer/App.tsx</code> — <code>enqueueMessage</code> / <code>removeQueued</code> / <code>interruptAndSend</code> handlers, the auto-flush <code>useEffect</code>, and wire props into <code>ChatView</code>.</li>
+</ul>
+<p><strong>No new files</strong> — the queue is small enough to live in the existing reducer + Composer.</p>
+<hr class="rule"/>
+<h3>Task 1: <code>QueuedMessage</code> type + <code>Session.queued</code> field</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src/renderer/cli/types.ts</code> (append near the other turn/message types)</li>
+<li>Modify: <code>src/renderer/mock/fixtures.ts:94-126</code> (Session interface)</li>
+</ul>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 1: Add the <code>QueuedMessage</code> type</strong></li>
+</ul>
+<p>In <code>src/renderer/cli/types.ts</code>, append after the <code>ImageAttachment</code> interface (around line 160+, at end of the turn-related types):</p>
+<pre><code>/**
+ * A message the user typed while a turn was already running. Queued in FIFO
+ * order on the session; flushed one-at-a-time as its own turn when the session
+ * returns to 'idle'. `modelId`/`effort`/`images` are captured at enqueue time so
+ * the queued send reproduces the model/effort/images the user composed (model
+ * routing is intentionally bypassed for queued sends — the choice was already
+ * made). Permission mode is NOT captured; the flush uses the session's current
+ * permission mode (latest-wins), which is the desired behavior.
+ */
+export interface QueuedMessage {
+  id: string
+  text: string
+  modelId: string
+  effort?: Effort
+  images?: ImageAttachment[]
+}</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 2: Add the <code>queued</code> field to <code>Session</code></strong></li>
+</ul>
+<p>In <code>src/renderer/mock/fixtures.ts</code>, add an import at the top alongside the other <code>@/cli/types</code> usage if not present, then add the field. First add the field inside <code>interface Session</code> (after <code>forkPending?</code> at line 125):</p>
+<pre><code>  /**
+   * FIFO queue of messages the user typed while a turn was running. Flushed
+   * one-at-a-time (each as its own turn) when this session goes back to 'idle'.
+   * Transient UI state — not persisted via StoredSession.
+   */
+  queued?: import('@/cli/types').QueuedMessage[]</code></pre>
+<p>(Inline <code>import('...')</code> type avoids adding a top-level import line and keeps the diff to one spot.)</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 3: Typecheck</strong></li>
+</ul>
+<p>Run: <code>npx tsc --noEmit -p tsconfig.json</code></p>
+<p>Expected: PASS (no usages yet, just the new type + optional field).</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 4: Commit</strong></li>
+</ul>
+<pre><code>git add src/renderer/cli/types.ts src/renderer/mock/fixtures.ts
+git commit -m "feat: add QueuedMessage type and Session.queued field"</code></pre>
+<hr class="rule"/>
+<h3>Task 2: Reducer actions — <code>enqueue</code> / <code>enqueueFront</code> / <code>removeQueued</code> / <code>updateQueued</code></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src/renderer/state/useSessions.ts:13-28</code> (action union), <code>:57-139</code> (reducer switch)</li>
+<li>Test: <code>src/renderer/state/useSessions.test.ts</code></li>
+</ul>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 1: Write the failing tests</strong></li>
+</ul>
+<p>Append to <code>src/renderer/state/useSessions.test.ts</code> inside the <code>describe('sessionsReducer', ...)</code> block:</p>
+<pre><code>  it('enqueue appends a queued message in FIFO order', () =&gt; {
+    const s0 = stateWithSession('x')
+    const s1 = sessionsReducer(s0, {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q1', text: 'first', modelId: 'opus-4-8' },
+    })
+    const s2 = sessionsReducer(s1, {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q2', text: 'second', modelId: 'opus-4-8' },
+    })
+    expect(s2.sessions[0].queued?.map((q) =&gt; q.id)).toEqual(['q1', 'q2'])
+    // immutability: original untouched
+    expect(s0.sessions[0].queued).toBeUndefined()
+  })
+
+  it('removeQueued drops the matching message by id', () =&gt; {
+    const base = sessionsReducer(stateWithSession('x'), {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q1', text: 'a', modelId: 'opus-4-8' },
+    })
+    const withTwo = sessionsReducer(base, {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q2', text: 'b', modelId: 'opus-4-8' },
+    })
+    const after = sessionsReducer(withTwo, { type: 'removeQueued', sessionId: 'x', id: 'q1' })
+    expect(after.sessions[0].queued?.map((q) =&gt; q.id)).toEqual(['q2'])
+  })
+
+  it('updateQueued edits the text of a queued message', () =&gt; {
+    const base = sessionsReducer(stateWithSession('x'), {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q1', text: 'old', modelId: 'opus-4-8' },
+    })
+    const after = sessionsReducer(base, { type: 'updateQueued', sessionId: 'x', id: 'q1', text: 'new' })
+    expect(after.sessions[0].queued?.[0].text).toBe('new')
+  })
+
+  it('removeQueued on an empty queue is a no-op (no throw)', () =&gt; {
+    const s0 = stateWithSession('x')
+    const after = sessionsReducer(s0, { type: 'removeQueued', sessionId: 'x', id: 'nope' })
+    expect(after.sessions[0].queued ?? []).toEqual([])
+  })
+
+  it('enqueueFront inserts at the head (interrupt jumps the line)', () =&gt; {
+    const withTwo = [
+      { type: 'enqueue' as const, sessionId: 'x', message: { id: 'q1', text: 'a', modelId: 'opus-4-8' } },
+      { type: 'enqueue' as const, sessionId: 'x', message: { id: 'q2', text: 'b', modelId: 'opus-4-8' } },
+    ].reduce(sessionsReducer, stateWithSession('x'))
+    const after = sessionsReducer(withTwo, {
+      type: 'enqueueFront', sessionId: 'x',
+      message: { id: 'q0', text: 'now', modelId: 'opus-4-8' },
+    })
+    expect(after.sessions[0].queued?.map((q) =&gt; q.id)).toEqual(['q0', 'q1', 'q2'])
+  })
+
+  it('removeQueued/updateQueued on an unknown session id is a no-op (no throw)', () =&gt; {
+    const s0 = stateWithSession('x')
+    expect(() =&gt; sessionsReducer(s0, { type: 'removeQueued', sessionId: 'nope', id: 'q1' })).not.toThrow()
+    expect(() =&gt; sessionsReducer(s0, { type: 'updateQueued', sessionId: 'nope', id: 'q1', text: 't' })).not.toThrow()
+  })</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 2: Run tests to verify they fail</strong></li>
+</ul>
+<p>Run: <code>npx vitest run src/renderer/state/useSessions.test.ts</code></p>
+<p>Expected: FAIL — TypeScript/asserts on unknown action types <code>enqueue</code>/<code>removeQueued</code>/<code>updateQueued</code>.</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 3: Add the action types to the union</strong></li>
+</ul>
+<p>In <code>src/renderer/state/useSessions.ts</code>, add <code>QueuedMessage</code> to the existing type import on line 4 and extend the <code>SessionsAction</code> union (after line 28's <code>setArchived</code>):</p>
+<p>Line 4 — change:</p>
+<pre><code>import type { StoredSession, TurnUsage } from '@/cli/types'</code></pre>
+<p>to:</p>
+<pre><code>import type { StoredSession, TurnUsage, QueuedMessage } from '@/cli/types'</code></pre>
+<p>Add to the <code>SessionsAction</code> union (after the <code>setArchived</code> line):</p>
+<pre><code>  | { type: 'enqueue'; sessionId: string; message: QueuedMessage }
+  | { type: 'enqueueFront'; sessionId: string; message: QueuedMessage }
+  | { type: 'removeQueued'; sessionId: string; id: string }
+  | { type: 'updateQueued'; sessionId: string; id: string; text: string }</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 4: Add the reducer cases</strong></li>
+</ul>
+<p>In <code>src/renderer/state/useSessions.ts</code>, add these cases inside the <code>switch</code> (e.g. right before <code>case 'hydrate':</code> at line 119):</p>
+<pre><code>    case 'enqueue':
+      return patchSession(state, action.sessionId, (s) =&gt; ({
+        ...s,
+        queued: [...(s.queued ?? []), action.message],
+      }))
+
+    case 'enqueueFront':
+      // Interrupt: this message must be sent FIRST, ahead of anything already queued.
+      return patchSession(state, action.sessionId, (s) =&gt; ({
+        ...s,
+        queued: [action.message, ...(s.queued ?? [])],
+      }))
+
+    case 'removeQueued':
+      return patchSession(state, action.sessionId, (s) =&gt; ({
+        ...s,
+        queued: (s.queued ?? []).filter((q) =&gt; q.id !== action.id),
+      }))
+
+    case 'updateQueued':
+      return patchSession(state, action.sessionId, (s) =&gt; ({
+        ...s,
+        queued: (s.queued ?? []).map((q) =&gt; (q.id === action.id ? { ...q, text: action.text } : q)),
+      }))</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 5: Run tests to verify they pass</strong></li>
+</ul>
+<p>Run: <code>npx vitest run src/renderer/state/useSessions.test.ts</code></p>
+<p>Expected: PASS (all new tests + existing tests green).</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 6: Commit</strong></li>
+</ul>
+<pre><code>git add src/renderer/state/useSessions.ts src/renderer/state/useSessions.test.ts
+git commit -m "feat: add enqueue/enqueueFront/removeQueued/updateQueued reducer actions"</code></pre>
+<hr class="rule"/>
+<h3>Task 3: Composer — queue on Enter, interrupt on Ctrl+Enter, render chips</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src/renderer/views/chat/Composer.tsx</code></li>
+</ul>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 1: Extend <code>ComposerProps</code> and imports</strong></li>
+</ul>
+<p>In <code>src/renderer/views/chat/Composer.tsx</code>, update the icon import (line 2) to add <code>ListPlus</code> and <code>Pencil</code>:</p>
+<pre><code>import { ArrowUp, Mic, GitBranch, Square, X, ListPlus, Pencil } from 'lucide-react'</code></pre>
+<p>Add <code>QueuedMessage</code> to the type import (line 12):</p>
+<pre><code>import type { Effort, PermissionMode, QueuedMessage } from '@/cli/types'</code></pre>
+<p>Add these fields to <code>interface ComposerProps</code> (after <code>onFork?</code> at line 46):</p>
+<pre><code>  /** Queued messages for this session (typed while a turn was running). */
+  queued?: QueuedMessage[]
+  /** Enqueue the current draft while busy (Enter while a turn runs). */
+  onEnqueue?: (text: string, modelId: string, effort?: Effort, images?: Array&lt;{ mediaType: string; data: string }&gt;) =&gt; void
+  /** Interrupt: stop the running turn and send the current draft now (Ctrl+Enter). */
+  onInterrupt?: (text: string, modelId: string, effort?: Effort, images?: Array&lt;{ mediaType: string; data: string }&gt;) =&gt; void
+  /** Remove a queued message by id (chip X button). */
+  onRemoveQueued?: (id: string) =&gt; void</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 2: Update the destructure + <code>submit</code>/<code>interrupt</code>/<code>enqueue</code> logic</strong></li>
+</ul>
+<p>Change the function signature destructure (lines 54-56) to include the new props:</p>
+<pre><code>export const Composer = forwardRef&lt;ComposerHandle, ComposerProps&gt;(function Composer(
+  { model, onSend, onStop, busy = false, tokens, permissionMode, onChangePermission, onSetCwd, onFork,
+    queued = [], onEnqueue, onInterrupt, onRemoveQueued },
+  ref,
+): JSX.Element {</code></pre>
+<p>Replace the <code>submit</code> function (lines 78-86) with a version that routes to enqueue while busy, plus add <code>interrupt</code> and a shared <code>imagesPayload</code> helper:</p>
+<pre><code>  const imagesPayload = (): Array&lt;{ mediaType: string; data: string }&gt; | undefined =&gt;
+    images.length ? images.map(({ mediaType, data }) =&gt; ({ mediaType, data })) : undefined
+
+  const clearDraft = (): void =&gt; {
+    setValue('')
+    setImages([])
+    requestAnimationFrame(resize)
+  }
+
+  // While a turn is running, Enter queues the draft (auto-sent when the turn
+  // finishes) instead of being blocked. When idle, it sends normally.
+  const submit = (): void =&gt; {
+    const text = value.trim()
+    if (!text &amp;&amp; images.length === 0) return
+    if (busy) {
+      if (!onEnqueue) return
+      onEnqueue(text, modelId, effort, imagesPayload())
+    } else {
+      onSend(text, modelId, effort, imagesPayload())
+    }
+    clearDraft()
+  }
+
+  // Ctrl+Enter while busy: stop the running turn and send this draft immediately.
+  const interrupt = (): void =&gt; {
+    const text = value.trim()
+    if (!text &amp;&amp; images.length === 0) return
+    if (!onInterrupt) return
+    onInterrupt(text, modelId, effort, imagesPayload())
+    clearDraft()
+  }
+
+  // Pull a queued message back into the textarea to edit it. ALWAYS remove it from
+  // the queue first (unconditionally — not just while busy): if the session has
+  // just gone idle, the auto-flush effect is about to send this very item, so
+  // leaving it in the queue would double-send (once by flush, once on re-submit).
+  const editQueued = (q: QueuedMessage): void =&gt; {
+    onRemoveQueued?.(q.id)
+    setValue((v) =&gt; (v ? `${q.text} ${v}` : q.text))
+    setModelId(q.modelId)
+    setEffort(q.effort)
+    textareaRef.current?.focus()
+    requestAnimationFrame(resize)
+  }</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 3: Update <code>handleKeyDown</code> for Ctrl+Enter and <code>canSend</code></strong></li>
+</ul>
+<p>Replace <code>handleKeyDown</code> (lines 118-123):</p>
+<pre><code>  const handleKeyDown = (e: React.KeyboardEvent&lt;HTMLTextAreaElement&gt;): void =&gt; {
+    if (e.key === 'Enter' &amp;&amp; (e.ctrlKey || e.metaKey)) {
+      // Ctrl/Cmd+Enter: interrupt the running turn and send now.
+      e.preventDefault()
+      if (busy) interrupt()
+      else submit()
+      return
+    }
+    if (e.key === 'Enter' &amp;&amp; !e.shiftKey) {
+      e.preventDefault()
+      submit()
+    }
+  }</code></pre>
+<p>Replace <code>canSend</code> (line 125) so the button is enabled while busy (Enter now queues):</p>
+<pre><code>  const canSend = value.trim().length &gt; 0 || images.length &gt; 0</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 4: Render the queue chips above the textarea</strong></li>
+</ul>
+<p>In <code>src/renderer/views/chat/Composer.tsx</code>, inside the rounded composer container, immediately <strong>before</strong> the image-thumbnails block (before line 134's <code>{images.length &gt; 0 &amp;&amp; (</code>), insert:</p>
+<pre><code>          {/* Queued messages (typed while a turn was running) */}
+          {queued.length &gt; 0 &amp;&amp; (
+            &lt;ul className="flex flex-col gap-1 px-3 pt-2" aria-label={th ? 'คิวข้อความ' : 'Queued messages'}&gt;
+              {queued.map((q, i) =&gt; (
+                &lt;li
+                  key={q.id}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-2 py-1 text-xs text-fg-muted"
+                &gt;
+                  &lt;span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] text-accent"&gt;
+                    {i + 1}
+                  &lt;/span&gt;
+                  &lt;button
+                    type="button"
+                    onClick={() =&gt; editQueued(q)}
+                    title={th ? 'แก้ไขข้อความในคิว' : 'Edit queued message'}
+                    aria-label={th ? `แก้ไขข้อความในคิวที่ ${i + 1}` : `Edit queued message ${i + 1}`}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                  &gt;
+                    &lt;Pencil size={11} className="shrink-0" /&gt;
+                    &lt;span className="truncate"&gt;{q.text || (th ? '(รูปภาพ)' : '(image)')}&lt;/span&gt;
+                  &lt;/button&gt;
+                  &lt;button
+                    type="button"
+                    onClick={() =&gt; onRemoveQueued?.(q.id)}
+                    title={th ? 'ลบออกจากคิว' : 'Remove from queue'}
+                    aria-label={th ? `ลบข้อความในคิวที่ ${i + 1}` : `Remove queued message ${i + 1}`}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-fg-muted hover:bg-destructive/20 hover:text-destructive focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  &gt;
+                    &lt;X size={11} /&gt;
+                  &lt;/button&gt;
+                &lt;/li&gt;
+              ))}
+            &lt;/ul&gt;
+          )}</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 5: Update placeholder + send-button cluster (queue affordance while busy)</strong></li>
+</ul>
+<p>Change the textarea placeholder (line 166) so it tells the user typing will queue:</p>
+<pre><code>            placeholder={busy ? (th ? 'พิมพ์เพื่อต่อคิว…' : 'Type to queue…') : dictation.listening ? 'Listening…' : 'Message Claude…'}</code></pre>
+<p>Replace the right-side send/stop cluster (lines 212-237) so that while busy we show BOTH a Queue button (when there is draft text) and the Stop button; when idle, the normal Send button:</p>
+<pre><code>              {busy ? (
+                &lt;&gt;
+                  &lt;button
+                    type="button"
+                    onClick={submit}
+                    disabled={!canSend}
+                    title={th ? 'ต่อคิว (Enter) · แทรกทันที Ctrl+Enter' : 'Queue (Enter) · Ctrl+Enter to interrupt'}
+                    aria-label={th ? 'ต่อคิวข้อความ' : 'Queue message'}
+                    className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                      canSend
+                        ? 'bg-accent/80 hover:bg-accent text-white cursor-pointer'
+                        : 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                    }`}
+                  &gt;
+                    &lt;ListPlus size={14} /&gt;
+                  &lt;/button&gt;
+                  {onStop &amp;&amp; (
+                    &lt;button
+                      type="button"
+                      onClick={onStop}
+                      title={th ? 'หยุดการตอบ' : 'Stop generating'}
+                      aria-label={th ? 'หยุดการตอบ' : 'Stop generating'}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-destructive text-white transition-colors hover:bg-destructive/90 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    &gt;
+                      &lt;Square size={13} fill="currentColor" /&gt;
+                    &lt;/button&gt;
+                  )}
+                &lt;/&gt;
+              ) : (
+                &lt;button
+                  type="button"
+                  onClick={submit}
+                  disabled={!canSend}
+                  title="Send message"
+                  aria-label="Send message"
+                  className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                    canSend
+                      ? 'bg-accent hover:bg-accent-hover text-white cursor-pointer'
+                      : 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                  }`}
+                &gt;
+                  &lt;ArrowUp size={14} /&gt;
+                &lt;/button&gt;
+              )}</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 6: Keep <code>ComposerHandle.submit</code> working (voice "ส่ง")</strong></li>
+</ul>
+<p>The imperative <code>submit</code> exposed via <code>useImperativeHandle</code> (line 116) already calls the new <code>submit</code>, which now enqueues while busy — that is the correct behavior for the voice "ส่ง" command too (queues if busy, sends if idle). No change needed; verify line 116 still reads:</p>
+<pre><code>  useImperativeHandle(ref, () =&gt; ({ submit, setModel: setModelId, setEffort }))</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 7: Typecheck</strong></li>
+</ul>
+<p>Run: <code>npx tsc --noEmit -p tsconfig.json</code></p>
+<p>Expected: PASS.</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 8: Commit</strong></li>
+</ul>
+<pre><code>git add src/renderer/views/chat/Composer.tsx
+git commit -m "feat: queue/interrupt + queue chips in composer while busy"</code></pre>
+<hr class="rule"/>
+<h3>Task 4: ChatView — thread the new props through</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src/renderer/views/chat/ChatView.tsx</code></li>
+</ul>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 1: Extend the props type + destructure</strong></li>
+</ul>
+<p>In <code>src/renderer/views/chat/ChatView.tsx</code>, add <code>QueuedMessage</code> to the type import (line 4):</p>
+<pre><code>import type { Effort, PermissionMode, QueuedMessage } from '@/cli/types'</code></pre>
+<p>Add to the destructured params (after <code>onFork,</code> line 17) and to the inline props type (after <code>onFork?:</code> line 27):</p>
+<p>Destructure block — add:</p>
+<pre><code>  queued,
+  onEnqueue,
+  onInterrupt,
+  onRemoveQueued,</code></pre>
+<p>Props type block — add:</p>
+<pre><code>  queued?: QueuedMessage[]
+  onEnqueue?: (text: string, modelId: string, effort?: Effort, images?: Array&lt;{ mediaType: string; data: string }&gt;) =&gt; void
+  onInterrupt?: (text: string, modelId: string, effort?: Effort, images?: Array&lt;{ mediaType: string; data: string }&gt;) =&gt; void
+  onRemoveQueued?: (id: string) =&gt; void</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 2: Pass them to <code>&lt;Composer&gt;</code></strong></li>
+</ul>
+<p>Update the <code>&lt;Composer ... /&gt;</code> JSX (lines 89-100) to forward the new props:</p>
+<pre><code>      &lt;Composer
+        ref={composerRef}
+        model={session.model}
+        onSend={onSend}
+        onStop={onStop}
+        busy={session.status === 'running'}
+        tokens={session.tokens}
+        permissionMode={permissionMode}
+        onChangePermission={onChangePermission}
+        onSetCwd={onSetCwd}
+        onFork={onFork}
+        queued={queued}
+        onEnqueue={onEnqueue}
+        onInterrupt={onInterrupt}
+        onRemoveQueued={onRemoveQueued}
+      /&gt;</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 3: Typecheck</strong></li>
+</ul>
+<p>Run: <code>npx tsc --noEmit -p tsconfig.json</code></p>
+<p>Expected: PASS.</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 4: Commit</strong></li>
+</ul>
+<pre><code>git add src/renderer/views/chat/ChatView.tsx
+git commit -m "feat: thread queue props through ChatView"</code></pre>
+<hr class="rule"/>
+<h3>Task 5: App.tsx — enqueue/remove/interrupt handlers + auto-flush effect</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src/renderer/App.tsx</code> — add handlers near <code>handleStop</code> (line ~729), the flush <code>useEffect</code>, and wire props into <code>ChatView</code> (line ~868).</li>
+</ul>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 1: Add the enqueue / removeQueued / interrupt handlers</strong></li>
+</ul>
+<p>In <code>src/renderer/App.tsx</code>, immediately after <code>handleStop</code> (ends line 729), add:</p>
+<pre><code>  // Enqueue a message typed while THIS session's turn is running. It is flushed
+  // (sent as its own turn) by the auto-flush effect when the session goes idle.
+  const enqueueMessage = (
+    text: string, modelId: string, effort?: Effort, images?: ImageAttachment[],
+  ): void =&gt; {
+    const sid = activeSession.id
+    sessionsDispatch({
+      type: 'enqueue', sessionId: sid,
+      message: { id: nextId('q'), text, modelId, effort, images },
+    })
+    const n = (sessionsRef.current.find((s) =&gt; s.id === sid)?.queued?.length ?? 0) + 1
+    speakStatus(say({ th: `เข้าคิวแล้ว ${n} ข้อความ`, en: `Queued (${n})` }))
+  }
+
+  const removeQueued = (id: string): void =&gt; {
+    sessionsDispatch({ type: 'removeQueued', sessionId: activeSession.id, id })
+    speakStatus(say({ th: 'ลบออกจากคิวแล้ว', en: 'Removed from queue' }))
+  }
+
+  // Interrupt = "send THIS now". Cancel the running turn (if any) and enqueue at
+  // the HEAD (enqueueFront) so it jumps ahead of anything already queued — honoring
+  // the design's "stop current + run now". The auto-flush effect sends it the moment
+  // the session goes idle (the cancel's onDone flips status → 'idle'). We enqueue
+  // rather than call runTurn directly because the cancel is async — a direct runTurn
+  // would stack a second live turn on a still-'running' session.
+  const interruptAndSend = (
+    text: string, modelId: string, effort?: Effort, images?: ImageAttachment[],
+  ): void =&gt; {
+    const sess = activeSession
+    if (sess.status === 'running') {
+      const turnId = activeTurnFor(activeTurnsRef.current, sess.id)
+      if (turnId) claudeClient.cancelTurn(turnId)
+    }
+    sessionsDispatch({
+      type: 'enqueueFront', sessionId: sess.id,
+      message: { id: nextId('q'), text, modelId, effort, images },
+    })
+    speakStatus(say(STATUS.stopped))
+  }</code></pre>
+<blockquote>Note: <code>enqueueMessage</code> / <code>removeQueued</code> / <code>interruptAndSend</code> all target <code>activeSession</code> — by design you can only type into the *visible* composer, so enqueue is single-session. The auto-flush (Step 2), by contrast, is multi-session: a session you queued into and then switched away from (still an open tab, just not active) keeps running and flushes its queue when it finishes. That asymmetry is intentional.</blockquote>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 2: Add the auto-flush effect</strong></li>
+</ul>
+<p>In <code>src/renderer/App.tsx</code>, add this effect. Place it right after the <code>pendingSeed</code> flush effect (after line 842, before <code>const centerView</code>):</p>
+<pre><code>  // Auto-flush queued messages: when ANY open session is idle with a non-empty
+  // queue, dequeue the head and run it as its own turn. Works for background
+  // sessions (the turn targets the queued session, not necessarily the active tab).
+  //
+  // Correctness invariants:
+  // - Only `status === 'idle'` flushes. finishTurn always lands on 'idle' (never
+  //   the unused 'error'/'active' states), and runTurn's error/cancel paths also
+  //   finishTurn → 'idle', so an errored OR stopped turn still flushes the queue.
+  // - dequeue (removeQueued) + runTurn's startTurn (status → 'running') are two
+  //   dispatches in the same effect tick; React 18 (createRoot) auto-batches them
+  //   into ONE commit, so the effect never re-observes the same head with status
+  //   still 'idle' → no double-send. `break` = one flush per pass; FIFO across
+  //   passes (next finishTurn → idle re-fires the effect for the following item).
+  // - routePendingRef guard closes the routing race: if a normal send is mid-
+  //   routing (classifier await / confirm dialog open) the session is still 'idle'
+  //   but a runTurn is about to fire for it — flushing now would stack two turns.
+  // - Skip non-open tabs: a soft-closed tab (closeTab → open:false) must not
+  //   silently fire turns in the background.
+  // Routing is bypassed for queued sends: the queued modelId is used as-is.
+  useEffect(() =&gt; {
+    if (!claudeOk) return
+    if (routePendingRef.current) return
+    for (const s of sessions) {
+      if (s.status !== 'idle' || s.open === false) continue
+      const head = s.queued?.[0]
+      if (!head) continue
+      sessionsDispatch({ type: 'removeQueued', sessionId: s.id, id: head.id })
+      runTurn(s, head.text, head.modelId, head.effort, head.images)
+      break // one flush per effect pass; the next idle render flushes the following item
+    }
+    // runTurn/sessions read fresh each render; guarded by status checks above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, claudeOk])</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 3: Wire the new props into <code>&lt;ChatView&gt;</code></strong></li>
+</ul>
+<p>In <code>src/renderer/App.tsx</code>, update the <code>&lt;ChatView ... /&gt;</code> JSX in <code>centerView</code> (lines 868-877) to pass the queue props:</p>
+<pre><code>          &lt;ChatView
+            session={activeSession}
+            onSend={handleSend}
+            onStop={handleStop}
+            composerRef={composerRef}
+            permissionMode={permissionMode}
+            onChangePermission={setPermissionMode}
+            onSetCwd={(path) =&gt; sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
+            onFork={(text) =&gt; forkSession(text)}
+            queued={activeSession.queued ?? []}
+            onEnqueue={enqueueMessage}
+            onInterrupt={interruptAndSend}
+            onRemoveQueued={removeQueued}
+          /&gt;</code></pre>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 4: Typecheck</strong></li>
+</ul>
+<p>Run: <code>npx tsc --noEmit -p tsconfig.json</code></p>
+<p>Expected: PASS.</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 5: Run the full test suite</strong></li>
+</ul>
+<p>Run: <code>npx vitest run</code></p>
+<p>Expected: PASS (existing 17+ tests + 4 new reducer tests).</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 6: Build</strong></li>
+</ul>
+<p>Run: <code>npm run build</code></p>
+<p>Expected: build succeeds (electron-vite renderer + main).</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 7: Commit</strong></li>
+</ul>
+<pre><code>git add src/renderer/App.tsx
+git commit -m "feat: auto-flush queued messages + enqueue/interrupt handlers"</code></pre>
+<hr class="rule"/>
+<h3>Task 6: Manual verification (real Electron app)</h3>
+<p><strong>Files:</strong> none (runtime verification).</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 1: Run the app</strong></li>
+</ul>
+<p>Run: <code>npm run dev</code> (or <code>launcher/start-dev.bat</code>)</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 2: Verify queue (sighted)</strong></li>
+</ul>
+<p>With Live mode + an installed <code>claude</code> CLI:</p>
+<p>1. Send a long-running prompt (e.g. "list 20 facts about the ocean, one paragraph each").</p>
+<p>2. While it streams, type "now summarize in one line" and press <strong>Enter</strong> → a chip appears above the composer; the turn keeps running.</p>
+<p>3. Type a second message, Enter → second chip appears (numbered 1, 2).</p>
+<p>4. When the first turn finishes, the chips flush one at a time, each as its own turn in order.</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 3: Verify interrupt (Ctrl+Enter)</strong></li>
+</ul>
+<p>1. Send a long prompt.</p>
+<p>2. While streaming, type "stop, do X instead" and press <strong>Ctrl+Enter</strong> → the running turn stops and the new message sends as the next turn.</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 4: Verify chip edit/remove</strong></li>
+</ul>
+<p>1. Queue two messages.</p>
+<p>2. Click a chip (pencil) → its text returns to the textarea, removed from the queue.</p>
+<p>3. Click the X on a chip → it disappears from the queue.</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 5: Verify a11y (blind UX)</strong></li>
+</ul>
+<p>1. Eyes-closed: queue a message → hear "เข้าคิวแล้ว N ข้อความ" / "Queued (N)" in the selected voice.</p>
+<p>2. Remove a chip → hear "ลบออกจากคิวแล้ว" / "Removed from queue".</p>
+<p>3. Tab into the chip buttons → screen reader announces the aria-labels.</p>
+<ul class="steps">
+<li class="chk"><input type="checkbox" disabled/> <strong>Step 6: Record results in HANDOFF.md</strong></li>
+</ul>
+<p>Append a short verification note (date + what passed) under the relevant TODO item.</p>
+<hr class="rule"/>
+<h3>Self-Review</h3>
+<p><strong>Spec coverage:</strong></p>
+<ul>
+<li>✅ Queue one-at-a-time, separate turns, FIFO → Task 5 flush effect (<code>break</code> + idle-gated re-fire).</li>
+<li>✅ Queue (Enter) + interrupt now (Ctrl+Enter) → Task 3 <code>submit</code>/<code>interrupt</code> + Task 5 <code>interruptAndSend</code> (jumps the line via <code>enqueueFront</code>).</li>
+<li>✅ Chips with delete + edit → Task 3 chip list (<code>editQueued</code> removes unconditionally, <code>onRemoveQueued</code>).</li>
+<li>✅ Works for background sessions → Task 5 effect iterates all OPEN <code>sessions</code>, targets <code>s</code> not <code>activeSession</code>.</li>
+<li>✅ Bypass routing, stored modelId → Task 5 <code>runTurn(s, head.modelId, ...)</code>.</li>
+<li>✅ A11y announce + aria-labels → Task 5 <code>speakStatus</code>, Task 3 chip <code>aria-label</code>s.</li>
+<li>✅ Pure reducer tested → Task 2 (incl. <code>enqueueFront</code> head-insert + unknown-session no-op).</li>
+<li>✅ Build/typecheck green → Tasks gate on <code>tsc --noEmit</code> + <code>npm run build</code> + <code>vitest run</code>.</li>
+</ul>
+<p><strong>Type consistency:</strong> <code>QueuedMessage { id, text, modelId, effort?, images? }</code> defined once (Task 1), used identically in reducer (Task 2), Composer (Task 3), ChatView (Task 4), App (Task 5). Action names <code>enqueue</code>/<code>enqueueFront</code>/<code>removeQueued</code>/<code>updateQueued</code> consistent across union + cases + dispatch sites.</p>
+<p><strong>Placeholder scan:</strong> none — every step shows full code.</p>
+<p><strong>Review fixes folded in (spawned review, 2 reviewers):</strong></p>
+<p>1. <strong>Interrupt now honors "send now"</strong> — added <code>enqueueFront</code> action; <code>interruptAndSend</code> inserts at head so it jumps ahead of already-queued items (was: tail-append, sent the wrong message first).</p>
+<p>2. <strong><code>editQueued</code> double-send fixed</strong> — removes from queue unconditionally (was: only <code>if (busy)</code>, which double-sent when clicked on a just-idle session as the flush effect also sent it).</p>
+<p>3. <strong>Flush-vs-routing race fixed</strong> — flush effect early-returns while <code>routePendingRef.current</code> is set, so an interrupt during the model-routing window can't stack two turns on one session.</p>
+<p>4. <strong>Closed-tab queue no longer fires</strong> — flush effect skips <code>open === false</code>; the File-Structure "clear queue on closeSession" line was moot (closeSession removes the whole session) and is corrected.</p>
+<p>5. <strong><code>permissionMode</code> doc corrected</strong> — <code>QueuedMessage</code> captures model/effort/images; permission mode is latest-wins (current), and the doc comment now says so instead of claiming an exact reproduction.</p>
+<p>6. Added reducer tests for <code>enqueueFront</code> and the unknown-session no-op path.</p>
+
+</div>
+</body>
+</html>
