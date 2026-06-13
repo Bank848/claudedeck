@@ -110,6 +110,13 @@ export interface PermissionRequestMsg {
   tool: string
   input: unknown
   toolUseId?: string
+  /**
+   * The ClaudeDeck session that owns this request. Stamped by the renderer when
+   * the request is queued (the turn's `onPermission` closure knows its session),
+   * so the prompt renders inside the originating chat — never as a global modal
+   * over whatever tab happens to be focused.
+   */
+  sessionId?: string
 }
 
 export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions' | 'default' | 'auto' | 'dontAsk'

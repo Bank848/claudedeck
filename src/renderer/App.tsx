@@ -53,7 +53,6 @@ import {
   type Tier,
   type RoutingDecision,
 } from '@/settings/modelRouting'
-import { buildForkedSession } from '@/state/forkSession'
 import { useAuth } from '@/cli/useAuth'
 import { LoginBanner } from '@/components/LoginBanner'
 
@@ -249,7 +248,7 @@ export default function App(): JSX.Element {
     // PAUSE command below; longest-match would still collide, so use distinct words.
     // confirm:'' → handleStop speaks STATUS.stopped (only when a turn is live).
     { phrases: ['stop', 'stop turn', 'stop generating', 'cancel', 'ยกเลิก', 'หยุดงาน', 'หยุดทำงาน', 'หยุดสร้าง'], run: () => handleStop(), confirm: '', label: '“stop” / “ยกเลิก”' },
-    { phrases: ['fork', 'fork session', 'fork conversation', 'แยกเซสชัน', 'แตกเซสชัน', 'แตกบทสนทนา'], run: () => forkSession(), confirm: th ? 'แตกบทสนทนา' : 'Fork', label: '“fork” / “แตกบทสนทนา”' },
+    { phrases: ['spawn', 'spawn task', 'new task', 'สร้างงาน', 'งานใหม่', 'แตกงาน'], run: () => spawnTask(), confirm: th ? 'สร้างงานใหม่' : 'Spawn task', label: '“spawn” / “สร้างงาน”' },
     { phrases: ['connect', 'log in', 'login', 'เชื่อมต่อ', 'เข้าสู่ระบบ', 'ล็อกอิน'], run: () => { void auth.login() }, confirm: th ? 'กำลังเชื่อมต่อ' : 'Connecting', label: '“connect” / “เชื่อมต่อ”' },
     { phrases: ['disconnect', 'log out', 'logout', 'ตัดการเชื่อมต่อ', 'ออกจากระบบ'], run: () => { void auth.logout() }, confirm: th ? 'ออกจากระบบแล้ว' : 'Disconnected', label: '“disconnect” / “ออกจากระบบ”' },
     { phrases: ['quiet', 'silence', 'be quiet', 'เงียบ', 'เงียบ ๆ'], run: stopSpeaking, confirm: '', label: '“quiet” / “เงียบ”' },
@@ -443,12 +442,12 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [settings.voiceCommands, update])
 
-  // Ctrl+Shift+B → fork the active conversation into a new tab (copy, no git).
+  // Ctrl+Shift+B → spawn a fresh task in a new tab.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.ctrlKey && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
         e.preventDefault()
-        forkSession()
+        spawnTask()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -631,7 +630,9 @@ export default function App(): JSX.Element {
         })
       },
       onPermission: (req) => {
-        setPermissionQueue((q) => [...q, req])
+        // Stamp the owning session so the prompt renders inside ITS chat (and its
+        // tab lights up amber), never as a global modal over whatever tab is focused.
+        setPermissionQueue((q) => [...q, { ...req, sessionId: sid }])
         speakStatus(th ? `ขออนุญาตใช้ ${req.tool}` : `Permission needed: ${req.tool}`)
       },
       onDone: () => {
@@ -648,8 +649,6 @@ export default function App(): JSX.Element {
         turnId, prompt: text, cwd: sess.cwd,
         sessionId: sess.claudeSessionId, model: modelId, permissionMode, effort,
         settings: permissions,
-        // First turn of a forked tab: copy the parent transcript to a new id.
-        forkSession: sess.forkPending,
         images,
       })
       .then((r) => {
@@ -772,26 +771,26 @@ export default function App(): JSX.Element {
     speakStatus(say(STATUS.stopped))
   }
 
-  // Answer the head-of-queue permission request, then dequeue it. If the turn was
-  // already gone the response can't be delivered (ok:false) — clear the stale head
-  // anyway and SAY so, instead of failing in total silence (#1, a11y).
-  const decidePermission = async (decision: 'allow' | 'deny'): Promise<void> => {
-    const req = permissionQueue[0]
+  // Answer a specific permission request (each lives inside its own session's chat,
+  // so multiple sessions can have pending prompts — we can't assume head-of-queue),
+  // then remove it by id. If the turn was already gone the response can't be
+  // delivered (ok:false) — clear the stale entry anyway and SAY so, instead of
+  // failing in total silence (#1, a11y).
+  const decidePermission = async (req: PermissionRequestMsg, decision: 'allow' | 'deny'): Promise<void> => {
     if (!req) return
     const { ok } = await claudeClient.respondPermission(
       req.turnId, req.id, decision, decision === 'allow' ? { input: req.input } : undefined,
     )
     const outcome = permissionResponseOutcome(ok)
-    if (outcome.dequeue) setPermissionQueue((q) => q.slice(1))
+    if (outcome.dequeue) setPermissionQueue((q) => q.filter((r) => r.id !== req.id))
     if (outcome.expired) speakStatus(say(STATUS.expired))
   }
   // Allow now AND persist the tool to the allow list so it never asks again.
-  const alwaysAllowPermission = (): void => {
-    const req = permissionQueue[0]
+  const alwaysAllowPermission = (req: PermissionRequestMsg): void => {
     if (!req) return
     const allow = permissions.allow ?? []
     if (!allow.includes(req.tool)) updatePermissions({ ...permissions, allow: [...allow, req.tool] })
-    void decidePermission('allow')
+    void decidePermission(req, 'allow')
   }
 
   // ── Session tab lifecycle (new / close / reopen-with-history) ─────────────
@@ -856,23 +855,22 @@ export default function App(): JSX.Element {
     sessionsDispatch({ type: 'setTitle', sessionId: id, title })
   }
 
-  // ── Fork a conversation into a new tab (Claude-app style: copy session, no git) ─
-  // Duplicates the source session in the SAME cwd, copies its history for display,
-  // and carries the parent's claude session id with `forkPending` so the first turn
-  // runs `--resume … --fork-session` — the CLI copies the transcript to a fresh id,
-  // leaving the parent untouched. `sourceId` defaults to the active tab so the voice
-  // command and shortcut fork what the user is looking at.
-  const forkSession = (seed?: string, sourceId?: string): void => {
-    const source = sessionsRef.current.find((s) => s.id === (sourceId ?? activeSessionId)) ?? activeSession
+  // ── Spawn a fresh task into a new tab ────────────────────────────────────────
+  // Opens a brand-new EMPTY session (no copied history) in the current folder,
+  // switches to it, and — when a seed prompt is given (e.g. the composer draft) —
+  // sends it as the first turn. That first turn auto-titles the tab from the prompt
+  // (see handleSend), so a spawned task names itself.
+  const spawnTask = (seed?: string, cwd?: string): void => {
     const id = nextId('s')
-    sessionsDispatch({ type: 'createSession', session: buildForkedSession(source, id, new Date()) })
+    const dir = cwd ?? activeSession?.cwd ?? ''
+    sessionsDispatch({ type: 'createSession', session: emptySession(id, dir) })
     setActiveSessionId(id)
     setActivity('chat')
     if (seed?.trim()) setPendingSeed({ sessionId: id, text: seed.trim() })
-    speakStatus(say({ th: 'แตกบทสนทนาไปแท็บใหม่แล้ว', en: 'Forked the conversation into a new tab' }))
+    speakStatus(say({ th: 'สร้างงานใหม่แล้ว', en: 'Spawned a new task' }))
   }
 
-  // Deliver a fork's starting prompt once the new session is active, idle and the
+  // Deliver a spawned task's starting prompt once the new session is active, idle and the
   // CLI is up. Fires exactly once (pendingSeed cleared before send).
   useEffect(() => {
     if (!pendingSeed) return
@@ -951,11 +949,15 @@ export default function App(): JSX.Element {
             permissionMode={permissionMode}
             onChangePermission={setPermissionMode}
             onSetCwd={(path) => sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
-            onFork={(text) => forkSession(text)}
+            onSpawn={(text) => spawnTask(text)}
             queued={activeSession.queued ?? []}
             onEnqueue={enqueueMessage}
             onInterrupt={interruptAndSend}
             onRemoveQueued={removeQueued}
+            permissionRequest={permissionQueue.find((r) => r.sessionId === activeSession.id) ?? null}
+            onPermissionDecide={decidePermission}
+            onPermissionAlwaysAllow={alwaysAllowPermission}
+            th={th}
           />
         )
     }
@@ -1004,7 +1006,7 @@ export default function App(): JSX.Element {
                   sessions={sessions}
                   activeSessionId={activeSessionId}
                   onSelectSession={(id) => void reopenSession(id)}
-                  onFork={() => forkSession()}
+                  onSpawn={() => spawnTask()}
                   onNew={newSession}
                   onNewInFolder={newSession}
                   onPin={pinSession}
@@ -1028,7 +1030,6 @@ export default function App(): JSX.Element {
                     onSelect={setActiveSessionId}
                     onNew={newSession}
                     onClose={closeSessionTab}
-                    onFork={(id) => forkSession(undefined, id)}
                   />
                   <main aria-label={VIEW_NAMES[activity] ? say(VIEW_NAMES[activity]) : 'Main'} className="min-h-0 flex-1 overflow-hidden">{centerView}</main>
                 </div>

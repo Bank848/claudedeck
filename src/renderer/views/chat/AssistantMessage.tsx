@@ -7,6 +7,7 @@ import { ThinkingBlock } from './ThinkingBlock'
 import { StreamingCursor } from './StreamingCursor'
 import { ElapsedTimer } from './ElapsedTimer'
 import { ReadAloudButton } from './ReadAloudButton'
+import { CopyButton } from './CopyButton'
 import { MODELS, type ChatMessage } from '@/mock/fixtures'
 import { plainSpeakableText, resolveLang } from '@/settings/speech'
 import { useSettings } from '@/settings/SettingsContext'
@@ -27,6 +28,23 @@ function formatTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+/**
+ * Reconstruct the message as Markdown for copy-to-clipboard: prose verbatim and
+ * code as fenced blocks (so it pastes back as usable Markdown). Thinking and tool
+ * cards are UI chrome, not part of the answer, so they're left out.
+ */
+function copyableText(message: ChatMessage): string {
+  return message.parts
+    .map((p) => {
+      if (p.kind === 'markdown') return p.text
+      if (p.kind === 'code') return `\`\`\`${p.content.language ?? ''}\n${p.content.code}\n\`\`\``
+      return ''
+    })
+    .filter(Boolean)
+    .join('\n\n')
+    .trim()
 }
 
 /** Join the readable prose from a message's parts for text-to-speech. */
@@ -76,6 +94,7 @@ export const AssistantMessage = memo(function AssistantMessage({ message }: Assi
             </span>
           )}
           <ReadAloudButton text={speakableText(message)} />
+          <CopyButton text={copyableText(message)} />
         </div>
 
         {parts.map((part, i) => {

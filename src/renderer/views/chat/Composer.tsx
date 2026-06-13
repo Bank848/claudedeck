@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { ArrowUp, Mic, GitBranch, Square, X, ListPlus, Pencil } from 'lucide-react'
+import { ArrowUp, Mic, Square, X, ListPlus, Pencil, GitBranch } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
 import { ModePicker } from '@/components/controls/ModePicker'
 import { EffortPicker } from '@/components/controls/EffortPicker'
@@ -10,7 +10,11 @@ import { useDictation } from '@/settings/speechRecognition'
 import { resolveLang } from '@/settings/speech'
 import { loadEffort, saveEffort } from '@/settings/uiPrefs'
 import { MODELS } from '@/mock/fixtures'
+import { SlashCommandMenu } from './SlashCommandMenu'
+import { matchSlashCommands, moveIndex, type SlashCommand } from './slashCommands'
 import type { Effort, PermissionMode, QueuedMessage } from '@/cli/types'
+
+const SLASH_LISTBOX_ID = 'composer-slash-listbox'
 
 export interface ComposerHandle {
   /** Submit the current text programmatically (used by the "ส่ง" voice command). */
@@ -43,8 +47,8 @@ interface ComposerProps {
   onChangePermission: (mode: PermissionMode) => void
   /** Retarget the active session cwd (Add folder). */
   onSetCwd: (path: string) => void
-  /** Fork the conversation into a new tab, seeding it with the current draft text. */
-  onFork?: (seedText: string) => void
+  /** Spawn a fresh task in a new tab, seeding it with the current draft text. */
+  onSpawn?: (seedText: string) => void
   /** Queued messages for this session (typed while a turn was running). */
   queued?: QueuedMessage[]
   /** Enqueue the current draft while busy (Enter while a turn runs). */
@@ -61,7 +65,7 @@ function seedModelId(label: string): string {
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { model, onSend, onStop, busy = false, tokens, permissionMode, onChangePermission, onSetCwd, onFork,
+  { model, onSend, onStop, busy = false, tokens, permissionMode, onChangePermission, onSetCwd, onSpawn,
     queued = [], onEnqueue, onInterrupt, onRemoveQueued },
   ref,
 ): JSX.Element {
@@ -74,6 +78,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [effort, setEffort] = useState<Effort | undefined>(loadEffort)
   useEffect(() => { saveEffort(effort) }, [effort])
   const [images, setImages] = useState<ImageDraft[]>([])
+  const [dragging, setDragging] = useState(false)
+  const dragDepth = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const resize = (): void => {
@@ -139,26 +145,60 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     requestAnimationFrame(resize)
   }
 
+  // Read an image File into a base64 ImageDraft and append it. Shared by paste + drag-drop.
+  const addImageFile = (file: File): void => {
+    if (!file.type.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const dataUri = ev.target?.result as string
+      // dataUri = "data:<mediaType>;base64,<data>"
+      const commaIdx = dataUri.indexOf(',')
+      const header = dataUri.slice(0, commaIdx)         // "data:image/png;base64"
+      const data = dataUri.slice(commaIdx + 1)          // raw base64
+      const mediaType = header.replace('data:', '').replace(';base64', '')
+      setImages((prev) => [...prev, { mediaType, data, preview: dataUri }])
+    }
+    reader.readAsDataURL(file)
+  }
+
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
-    const items = Array.from(e.clipboardData.items)
-    const imageItems = items.filter((item) => item.type.startsWith('image/'))
+    const imageItems = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith('image/'))
     if (imageItems.length === 0) return
     e.preventDefault()
     imageItems.forEach((item) => {
       const file = item.getAsFile()
-      if (!file) return
-      const reader = new FileReader()
-      reader.onload = (ev) => {
-        const dataUri = ev.target?.result as string
-        // dataUri = "data:<mediaType>;base64,<data>"
-        const commaIdx = dataUri.indexOf(',')
-        const header = dataUri.slice(0, commaIdx)         // "data:image/png;base64"
-        const data = dataUri.slice(commaIdx + 1)          // raw base64
-        const mediaType = header.replace('data:', '').replace(';base64', '')
-        setImages((prev) => [...prev, { mediaType, data, preview: dataUri }])
-      }
-      reader.readAsDataURL(file)
+      if (file) addImageFile(file)
     })
+  }
+
+  // Drag-and-drop image attachments onto the composer. Track depth so nested
+  // dragenter/leave events don't flicker the highlight off prematurely.
+  const handleDragEnter = (e: React.DragEvent): void => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return
+    e.preventDefault()
+    dragDepth.current += 1
+    setDragging(true)
+  }
+
+  const handleDragOver = (e: React.DragEvent): void => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleDragLeave = (e: React.DragEvent): void => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent): void => {
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+    dragDepth.current = 0
+    setDragging(false)
+    if (files.length === 0) return
+    e.preventDefault()
+    files.forEach(addImageFile)
   }
 
   useImperativeHandle(ref, () => ({ submit, setModel: setModelId, setEffort }))
@@ -184,7 +224,20 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     <div className="shrink-0 border-t border-border bg-surface px-4 py-3">
       <div className="mx-auto max-w-3xl">
         {/* Input area */}
-        <div className="flex flex-col rounded-2xl border border-border bg-bg transition-shadow focus-within:ring-2 focus-within:ring-accent/40">
+        <div
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`relative flex flex-col rounded-2xl border bg-bg transition-shadow focus-within:ring-2 focus-within:ring-accent/40 ${
+            dragging ? 'border-accent ring-2 ring-accent/40' : 'border-border'
+          }`}
+        >
+          {dragging && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-accent/10 text-sm font-medium text-accent">
+              {th ? 'วางรูปเพื่อแนบ' : 'Drop image to attach'}
+            </div>
+          )}
           {/* Queued messages (typed while a turn was running) */}
           {queued.length > 0 && (
             <ul className="flex flex-col gap-1 px-3 pt-2" aria-label={th ? 'คิวข้อความ' : 'Queued messages'}>
@@ -282,10 +335,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               )}
               <ModePicker value={permissionMode} onChange={onChangePermission} />
               <EffortPicker value={effort} onChange={setEffort} />
-              {onFork && (
+              {onSpawn && (
                 <button
                   type="button"
-                  onClick={() => onFork(value.trim())}
+                  onClick={() => onSpawn(value.trim())}
                   aria-label="Fork the conversation into a new tab with this message"
                   title="Fork conversation into a new tab (carry this message)"
                   className="flex h-7 w-7 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import type { ChatMessage, Session } from '@/mock/fixtures'
-import type { Effort, PermissionMode, QueuedMessage } from '@/cli/types'
+import type { Effort, PermissionMode, QueuedMessage, PermissionRequestMsg } from '@/cli/types'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
+import { PermissionPrompt } from './PermissionPrompt'
 import { Composer, type ComposerHandle } from './Composer'
 
 export default function ChatView({
@@ -19,6 +20,10 @@ export default function ChatView({
   onEnqueue,
   onInterrupt,
   onRemoveQueued,
+  permissionRequest,
+  onPermissionDecide,
+  onPermissionAlwaysAllow,
+  th = true,
 }: {
   session: Session
   onSend: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
@@ -33,13 +38,19 @@ export default function ChatView({
   onEnqueue?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
   onInterrupt?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
   onRemoveQueued?: (id: string) => void
+  /** The head pending tool-permission request for THIS session (null when none). */
+  permissionRequest?: PermissionRequestMsg | null
+  onPermissionDecide?: (req: PermissionRequestMsg, decision: 'allow' | 'deny') => void
+  onPermissionAlwaysAllow?: (req: PermissionRequestMsg) => void
+  th?: boolean
 }): JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom when messages change OR a permission prompt appears, so
+  // the in-chat Allow/Deny card is never stranded below the fold.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [session.messages.length])
+  }, [session.messages.length, permissionRequest?.id])
 
   // Announce each COMPLETED assistant reply to external screen readers
   // (NVDA/JAWS) — the message list itself has no live region, so without this a
@@ -104,7 +115,7 @@ export default function ChatView({
         permissionMode={permissionMode}
         onChangePermission={onChangePermission}
         onSetCwd={onSetCwd}
-        onFork={onFork}
+        onSpawn={onFork}
         queued={queued}
         onEnqueue={onEnqueue}
         onInterrupt={onInterrupt}

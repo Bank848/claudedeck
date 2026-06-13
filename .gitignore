@@ -52,3 +52,6 @@ miku-server/_premwadee_test/
 miku-server/_thaibase/
 miku-server/_voicetest*/
 miku-server/.cache/
+
+# Claude Code agent worktrees (embedded repos)
+.claude/worktrees/
