@@ -64,8 +64,21 @@ export function CodeBlock({ content }: CodeBlockProps): JSX.Element {
           )}
         </button>
       </div>
-      {/* Code body */}
-      <div className="overflow-x-auto bg-bg">
+      {/* Code body — click anywhere to copy (selection-aware) */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={handleBodyClick}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            handleCopy()
+          }
+        }}
+        aria-label={copied ? 'Copied code to clipboard' : 'Copy code to clipboard'}
+        title={copied ? 'Copied!' : 'Click to copy'}
+        className="overflow-x-auto bg-bg cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+      >
         <pre className="p-4 m-0">
           <code
             className="font-mono text-xs leading-relaxed"

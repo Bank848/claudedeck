@@ -4,6 +4,7 @@ import { MarkdownContent } from './MarkdownContent'
 import { CodeBlock } from './CodeBlock'
 import { ToolCallCard } from './ToolCallCard'
 import { ThinkingBlock } from './ThinkingBlock'
+import { SpawnChip } from './SpawnChip'
 import { StreamingCursor } from './StreamingCursor'
 import { ElapsedTimer } from './ElapsedTimer'
 import { ReadAloudButton } from './ReadAloudButton'
@@ -55,6 +56,7 @@ function speakableText(message: ChatMessage): string {
         if (p.kind === 'markdown' || p.kind === 'thinking') return p.text
         if (p.kind === 'code') return 'code block.'
         if (p.kind === 'tool') return `Tool ${p.call.tool}: ${p.call.label}.`
+        if (p.kind === 'spawn-chip') return `Suggested follow-up task: ${p.chip.title}.`
         return ''
       })
       .join('. '),

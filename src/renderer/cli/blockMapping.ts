@@ -1,5 +1,22 @@
-import type { MessagePart, ToolStatus } from '@/mock/fixtures'
+import type { MessagePart, ToolStatus, SpawnChipData } from '@/mock/fixtures'
 import type { ContentBlock, ToolResultContent } from './types'
+
+/** Wire name of ClaudeDeck's injected MCP tool. MUST match electron/claude.ts SPAWN_TASK_TOOL. */
+export const SPAWN_TASK_TOOL_NAME = 'mcp__claudedeck__spawn_task'
+
+/** Parse a spawn_task tool_use input into chip data; null when there's no usable prompt. */
+export function spawnChipFromInput(id: string, input: unknown): SpawnChipData | null {
+  const o = (input ?? {}) as Record<string, unknown>
+  const prompt = typeof o.prompt === 'string' ? o.prompt : ''
+  if (!prompt.trim()) return null
+  return {
+    toolUseId: id,
+    title: typeof o.title === 'string' && o.title.trim() ? o.title : 'Spawn task',
+    prompt,
+    tldr: typeof o.tldr === 'string' ? o.tldr : '',
+    cwd: typeof o.cwd === 'string' && o.cwd ? o.cwd : undefined,
+  }
+}
 
 /**
  * Shared mapping from claude content blocks → ClaudeDeck message parts. Used by
@@ -26,11 +43,16 @@ export function blockToPart(block: ContentBlock, status: ToolStatus): MessagePar
       return { kind: 'markdown', text: block.text }
     case 'thinking':
       return { kind: 'thinking', text: block.thinking }
-    case 'tool_use':
+    case 'tool_use': {
+      if (block.name === SPAWN_TASK_TOOL_NAME) {
+        const chip = spawnChipFromInput(block.id, block.input)
+        return chip ? { kind: 'spawn-chip', chip } : null
+      }
       return {
         kind: 'tool',
         call: { id: block.id, tool: block.name, label: toolLabel(block.name, block.input), status, input: block.input },
       }
+    }
     default:
       return null
   }

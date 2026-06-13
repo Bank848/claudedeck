@@ -65,6 +65,17 @@ export interface CodeBlockContent {
   code: string
 }
 
+/** Payload for an assistant-suggested spawn_task chip (mirror of the MCP tool input). */
+export interface SpawnChipData {
+  /** The originating tool_use id — stable across live stream and transcript re-parse. */
+  toolUseId: string
+  title: string
+  prompt: string
+  tldr: string
+  /** Optional working dir for the spawned session; falls back to the current session's cwd. */
+  cwd?: string
+}
+
 /**
  * A message is composed of ordered parts so the chat can interleave prose,
  * code blocks, tool-call cards and a thinking block like the real Claude app.
@@ -74,6 +85,7 @@ export type MessagePart =
   | { kind: 'code'; content: CodeBlockContent }
   | { kind: 'tool'; call: ToolCall }
   | { kind: 'thinking'; text: string }
+  | { kind: 'spawn-chip'; chip: SpawnChipData }
 
 export interface ChatMessage {
   id: string

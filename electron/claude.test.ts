@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { buildArgs, toCliModel, toCliMode, toCliEffort, pickCwd, classifyLine, cleanRules, pickClaudeBin } from './claude'
+import { describe, it, expect, afterEach } from 'vitest'
+import { buildArgs, toCliModel, toCliMode, toCliEffort, pickCwd, classifyLine, cleanRules, pickClaudeBin, setSpawnTaskMcpConfig, SPAWN_TASK_TOOL } from './claude'
 import type { StartTurnArgs } from './claude'
 
 const base: StartTurnArgs = {
@@ -141,8 +141,9 @@ describe('buildArgs', () => {
     expect(a).not.toContain('--resume')
   })
 
-  it('emits --allowedTools / --disallowedTools as separate tokens, skips when empty', () => {
-    expect(buildArgs(base)).not.toContain('--allowedTools')
+  it('emits --allowedTools / --disallowedTools as separate tokens', () => {
+    // allowedTools is ALWAYS present now (carries the spawn_task token); disallowed is still optional.
+    expect(buildArgs(base)).toContain('--allowedTools')
     expect(buildArgs(base)).not.toContain('--disallowedTools')
     const a = buildArgs({
       ...base,
@@ -222,6 +223,41 @@ describe('buildArgs', () => {
     const args = buildArgs({ ...base, prompt: nasty })
     expect(args).not.toContain(nasty)
     expect(args.some((t) => t.includes('calc') || t.includes('&'))).toBe(false)
+  })
+})
+
+describe('buildArgs — spawn_task injection', () => {
+  afterEach(() => setSpawnTaskMcpConfig(undefined))
+
+  it('always appends the spawn_task system prompt and allowlists the tool', () => {
+    const args = buildArgs(base)
+    expect(args).toContain('--append-system-prompt')
+    const ai = args.indexOf('--allowedTools')
+    expect(ai).toBeGreaterThanOrEqual(0)
+    expect(args.slice(ai + 1)).toContain(SPAWN_TASK_TOOL)
+  })
+
+  it('merges the spawn_task token after the user allow rules', () => {
+    const args = buildArgs({ ...base, allowedTools: ['Edit', 'Bash(git *)'] })
+    const ai = args.indexOf('--allowedTools')
+    const allow = args.slice(ai + 1).filter((t) => !t.startsWith('--'))
+    expect(allow).toContain('Edit')
+    expect(allow).toContain('Bash(git *)')
+    expect(allow).toContain(SPAWN_TASK_TOOL)
+  })
+
+  it('adds --mcp-config only when a config path is set', () => {
+    expect(buildArgs(base)).not.toContain('--mcp-config')
+    setSpawnTaskMcpConfig('C:/Users/x/AppData/Roaming/claudedeck/mcp/claudedeck-mcp.json')
+    const args = buildArgs(base)
+    const i = args.indexOf('--mcp-config')
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(args[i + 1]).toBe('C:/Users/x/AppData/Roaming/claudedeck/mcp/claudedeck-mcp.json')
+  })
+
+  it('drops --mcp-config when the path contains % (CRIT-1 quoteForCmd)', () => {
+    setSpawnTaskMcpConfig('C:/Users/%evil%/mcp.json')
+    expect(buildArgs(base)).not.toContain('--mcp-config')
   })
 })
 

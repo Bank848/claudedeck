@@ -193,6 +193,28 @@ export function toCliMode(m?: string): PermissionMode {
   return (MODES as readonly string[]).includes(m ?? '') ? (m as PermissionMode) : 'default'
 }
 
+/** Wire name of the injected MCP tool (server `claudedeck` + tool `spawn_task`). MUST
+ *  match the renderer detector in src/renderer/cli/blockMapping.ts (SPAWN_TASK_TOOL_NAME). */
+export const SPAWN_TASK_TOOL = 'mcp__claudedeck__spawn_task'
+
+/** Appended to every turn so the model knows the tool exists and when to use it.
+ *  ASCII only, no `%` (Windows quoteForCmd rejects `%`). */
+export const SPAWN_TASK_SYSTEM_PROMPT =
+  'You have a spawn_task tool. When you notice out-of-scope follow-up work worth doing ' +
+  'separately - dead code, stale docs, a bug in unrelated code, missing test coverage - that ' +
+  'would bloat the current change, call spawn_task with a self-contained prompt (the new ' +
+  'session has no memory of this conversation; include file paths and enough detail to act ' +
+  'cold), a short imperative title, and a one-line tldr. The user sees a chip and decides ' +
+  'whether to spin it into a new session. Do NOT call it for vague observations, trivial ' +
+  'inline fixes, or anything that needs this conversation to understand.'
+
+/** Set by main.ts at startup once the mcp-config file is written; undefined disables
+ *  --mcp-config injection (the chip still works via tool_use detection). */
+let spawnTaskMcpConfigPath: string | undefined
+export function setSpawnTaskMcpConfig(path: string | undefined): void {
+  spawnTaskMcpConfigPath = path
+}
+
 /** Use the requested cwd only if it exists; otherwise fall back to a real dir. */
 export function pickCwd(
   requested: string | undefined,
@@ -220,6 +242,11 @@ export function buildArgs(a: StartTurnArgs): string[] {
   // Windows .cmd path. Drop the flag rather than crash the turn.
   const settingSources = a.settingSources && !a.settingSources.includes('%') ? a.settingSources : undefined
   const sessionId = a.sessionId && !a.sessionId.includes('%') ? a.sessionId : undefined
+  // The spawn_task tool is allowlisted in EVERY turn/mode so it never prompts (non-blocking).
+  const allowWithSpawn = [...allow, SPAWN_TASK_TOOL]
+  // Inject --mcp-config only with a set, %-free path (quoteForCmd rejects %; non-fatal otherwise).
+  const mcpConfig =
+    spawnTaskMcpConfigPath && !spawnTaskMcpConfigPath.includes('%') ? spawnTaskMcpConfigPath : undefined
   return [
     '-p',
     '--output-format', 'stream-json',
@@ -231,7 +258,7 @@ export function buildArgs(a: StartTurnArgs): string[] {
     '--permission-prompt-tool', 'stdio',
     ...(model ? ['--model', model] : []),
     ...(effort ? ['--effort', effort] : []),
-    ...(allow.length ? ['--allowedTools', ...allow] : []),
+    ...['--allowedTools', ...allowWithSpawn],
     ...(deny.length ? ['--disallowedTools', ...deny] : []),
     ...(dirs.length ? ['--add-dir', ...dirs] : []),
     ...(settingsJson ? ['--settings', settingsJson] : []),
@@ -240,6 +267,9 @@ export function buildArgs(a: StartTurnArgs): string[] {
     ...(sessionId ? ['--resume', sessionId] : []),
     // Fork only makes sense when resuming: copy the parent transcript to a new id.
     ...(sessionId && a.forkSession ? ['--fork-session'] : []),
+    // spawn_task injection (always: system prompt; conditional: mcp-config path).
+    '--append-system-prompt', SPAWN_TASK_SYSTEM_PROMPT,
+    ...(mcpConfig ? ['--mcp-config', mcpConfig] : []),
   ]
 }
 
