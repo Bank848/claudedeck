@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildArgs, toCliModel, toCliMode, toCliEffort, pickCwd, classifyLine, cleanRules } from './claude'
+import { buildArgs, toCliModel, toCliMode, toCliEffort, pickCwd, classifyLine, cleanRules, pickClaudeBin } from './claude'
 import type { StartTurnArgs } from './claude'
 
 const base: StartTurnArgs = {
@@ -31,6 +31,29 @@ describe('toCliModel (B2 — fixture id → valid --model)', () => {
     expect(toCliModel('a&calc')).toBeUndefined()
     expect(toCliModel('bogus-model')).toBeUndefined()
     expect(toCliModel('opus-4-8 & calc.exe')).toBeUndefined()
+  })
+})
+
+describe.runIf(process.platform === 'win32')('pickClaudeBin (win32 — skip extensionless npm shim)', () => {
+  it('prefers the .cmd shim over the extensionless shell script (the ENOENT bug)', () => {
+    // Exactly what `where claude` emits on this machine: shim first, then .cmd.
+    const where = [
+      'C:\\Users\\zxcas\\AppData\\Roaming\\npm\\claude',
+      'C:\\Users\\zxcas\\AppData\\Roaming\\npm\\claude.cmd',
+    ]
+    expect(pickClaudeBin(where)).toBe('C:\\Users\\zxcas\\AppData\\Roaming\\npm\\claude.cmd')
+  })
+
+  it('prefers a real .exe when present', () => {
+    expect(pickClaudeBin(['C:\\bin\\claude', 'C:\\bin\\claude.exe'])).toBe('C:\\bin\\claude.exe')
+  })
+
+  it('falls back to the first candidate when none are runnable', () => {
+    expect(pickClaudeBin(['C:\\bin\\claude'])).toBe('C:\\bin\\claude')
+  })
+
+  it('returns null for no candidates', () => {
+    expect(pickClaudeBin([])).toBeNull()
   })
 })
 

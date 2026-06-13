@@ -127,6 +127,24 @@ export async function detectClaude(): Promise<string | null> {
   return cachedBin
 }
 
+/** Windows-runnable forms: a real `.exe`, or a `.cmd`/`.bat` shim (run via cmd.exe). */
+const WIN_RUNNABLE = /\.(exe|cmd|bat)$/i
+
+/**
+ * Pick the bin to spawn from `where`/`which` output (already existence-filtered).
+ * On Windows, `where claude` lists the EXTENSIONLESS npm shim first — that file is
+ * a Unix shell script CreateProcess can't execute (and, lacking a .cmd/.bat suffix,
+ * isDirectExe would try to run it directly → `spawn …\npm\claude ENOENT`). So prefer
+ * the first real `.exe`/`.cmd`/`.bat`, falling back to the first candidate elsewhere.
+ */
+export function pickClaudeBin(candidates: string[]): string | null {
+  if (process.platform === 'win32') {
+    const runnable = candidates.find((c) => WIN_RUNNABLE.test(c))
+    if (runnable) return runnable
+  }
+  return candidates[0] ?? null
+}
+
 function probe(): Promise<string | null> {
   return new Promise((resolve) => {
     const finder = process.platform === 'win32' ? 'where' : 'which'
@@ -136,8 +154,8 @@ function probe(): Promise<string | null> {
     p.on('error', () => resolve(null))
     p.on('exit', (code) => {
       if (code !== 0) return resolve(null)
-      const first = out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0]
-      resolve(first && existsSync(first) ? first : null)
+      const candidates = out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).filter(existsSync)
+      resolve(pickClaudeBin(candidates))
     })
   })
 }
