@@ -49,8 +49,9 @@ describe('matchSlashCommands', () => {
   })
 
   it('prefix-matches the command name (case-insensitive)', () => {
+    // Name-prefix hits rank first (desc-substring hits may follow — see test below).
     const r = matchSlashCommands('/CO')
-    expect(r.map((c) => c.name)).toEqual(['/compact', '/config', '/cost'])
+    expect(r.slice(0, 3).map((c) => c.name)).toEqual(['/compact', '/config', '/cost'])
   })
 
   it('ranks name-prefix hits above description substring hits', () => {

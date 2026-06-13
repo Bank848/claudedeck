@@ -10,11 +10,7 @@ import { useDictation } from '@/settings/speechRecognition'
 import { resolveLang } from '@/settings/speech'
 import { loadEffort, saveEffort } from '@/settings/uiPrefs'
 import { MODELS } from '@/mock/fixtures'
-import { SlashCommandMenu } from './SlashCommandMenu'
-import { matchSlashCommands, moveIndex, type SlashCommand } from './slashCommands'
 import type { Effort, PermissionMode, QueuedMessage } from '@/cli/types'
-
-const SLASH_LISTBOX_ID = 'composer-slash-listbox'
 
 export interface ComposerHandle {
   /** Submit the current text programmatically (used by the "ส่ง" voice command). */

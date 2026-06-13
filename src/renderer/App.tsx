@@ -1005,20 +1005,20 @@ export default function App(): JSX.Element {
             permissionMode={permissionMode}
             onChangePermission={setPermissionMode}
             onSetCwd={(path) => sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
-            onSpawn={(text) => spawnTask(text)}
             onSpawnTask={spawnTask}
             queued={activeSession.queued ?? []}
             onEnqueue={enqueueMessage}
             onInterrupt={interruptAndSend}
             onRemoveQueued={removeQueued}
             permissionRequest={permissionQueue.find((r) => r.sessionId === activeSession.id) ?? null}
-            onPermissionDecide={decidePermission}
-            onPermissionAlwaysAllow={alwaysAllowPermission}
-            th={th}
           />
         )
     }
   })()
+
+  // Head of the global pending-permission queue. Captured as a const so the
+  // Allow/Deny callbacks below stay narrowed to a defined request inside their closures.
+  const pendingPermission = permissionQueue[0]
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg text-fg">
@@ -1063,7 +1063,6 @@ export default function App(): JSX.Element {
                   sessions={sessions}
                   activeSessionId={activeSessionId}
                   onSelectSession={(id) => void reopenSession(id)}
-                  onSpawn={() => spawnTask()}
                   onNew={newSession}
                   onNewInFolder={newSession}
                   onPin={pinSession}
@@ -1125,11 +1124,11 @@ export default function App(): JSX.Element {
         onAnnounce={setLiveStatus}
       />
 
-      {permissionQueue[0] && (
+      {pendingPermission && (
         <PermissionPrompt
-          request={permissionQueue[0]}
-          onDecide={decidePermission}
-          onAlwaysAllow={alwaysAllowPermission}
+          request={pendingPermission}
+          onDecide={(decision) => decidePermission(pendingPermission, decision)}
+          onAlwaysAllow={() => alwaysAllowPermission(pendingPermission)}
           th={th}
         />
       )}

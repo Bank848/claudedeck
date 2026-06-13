@@ -5,7 +5,6 @@ import type { Effort, PermissionMode, QueuedMessage, PermissionRequestMsg } from
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
 import { SpawnContext } from './SpawnChip'
-import { PermissionPrompt } from './PermissionPrompt'
 import { Composer, type ComposerHandle } from './Composer'
 
 export default function ChatView({
@@ -23,9 +22,6 @@ export default function ChatView({
   onInterrupt,
   onRemoveQueued,
   permissionRequest,
-  onPermissionDecide,
-  onPermissionAlwaysAllow,
-  th = true,
 }: {
   session: Session
   onSend: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
@@ -42,11 +38,10 @@ export default function ChatView({
   onEnqueue?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
   onInterrupt?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
   onRemoveQueued?: (id: string) => void
-  /** The head pending tool-permission request for THIS session (null when none). */
+  /** The head pending tool-permission request for THIS session (null when none).
+   *  Used only to auto-scroll the chat when a prompt appears; the prompt itself
+   *  is rendered globally in App. */
   permissionRequest?: PermissionRequestMsg | null
-  onPermissionDecide?: (req: PermissionRequestMsg, decision: 'allow' | 'deny') => void
-  onPermissionAlwaysAllow?: (req: PermissionRequestMsg) => void
-  th?: boolean
 }): JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null)
 
