@@ -719,6 +719,46 @@ export default function App(): JSX.Element {
     speakStatus(say(STATUS.stopped))
   }
 
+  // Enqueue a message typed while THIS session's turn is running. It is flushed
+  // (sent as its own turn) by the auto-flush effect when the session goes idle.
+  const enqueueMessage = (
+    text: string, modelId: string, effort?: Effort, images?: ImageAttachment[],
+  ): void => {
+    const sid = activeSession.id
+    sessionsDispatch({
+      type: 'enqueue', sessionId: sid,
+      message: { id: nextId('q'), text, modelId, effort, images },
+    })
+    const n = (sessionsRef.current.find((s) => s.id === sid)?.queued?.length ?? 0) + 1
+    speakStatus(say({ th: `เข้าคิวแล้ว ${n} ข้อความ`, en: `Queued (${n})` }))
+  }
+
+  const removeQueued = (id: string): void => {
+    sessionsDispatch({ type: 'removeQueued', sessionId: activeSession.id, id })
+    speakStatus(say({ th: 'ลบออกจากคิวแล้ว', en: 'Removed from queue' }))
+  }
+
+  // Interrupt = "send THIS now". Cancel the running turn (if any) and enqueue at
+  // the HEAD (enqueueFront) so it jumps ahead of anything already queued — honoring
+  // the design's "stop current + run now". The auto-flush effect sends it the moment
+  // the session goes idle (the cancel's onDone flips status → 'idle'). We enqueue
+  // rather than call runTurn directly because the cancel is async — a direct runTurn
+  // would stack a second live turn on a still-'running' session.
+  const interruptAndSend = (
+    text: string, modelId: string, effort?: Effort, images?: ImageAttachment[],
+  ): void => {
+    const sess = activeSession
+    if (sess.status === 'running') {
+      const turnId = activeTurnFor(activeTurnsRef.current, sess.id)
+      if (turnId) claudeClient.cancelTurn(turnId)
+    }
+    sessionsDispatch({
+      type: 'enqueueFront', sessionId: sess.id,
+      message: { id: nextId('q'), text, modelId, effort, images },
+    })
+    speakStatus(say(STATUS.stopped))
+  }
+
   // Answer the head-of-queue permission request, then dequeue it. If the turn was
   // already gone the response can't be delivered (ok:false) — clear the stale head
   // anyway and SAY so, instead of failing in total silence (#1, a11y).
@@ -828,6 +868,40 @@ export default function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSeed, activeSession, claudeOk])
 
+  // Auto-flush queued messages: when ANY open session is idle with a non-empty
+  // queue, dequeue the head and run it as its own turn. Works for background
+  // sessions (the turn targets the queued session, not necessarily the active tab).
+  //
+  // Correctness invariants:
+  // - Only `status === 'idle'` flushes. finishTurn always lands on 'idle' (never
+  //   the unused 'error'/'active' states), and runTurn's error/cancel paths also
+  //   finishTurn → 'idle', so an errored OR stopped turn still flushes the queue.
+  // - dequeue (removeQueued) + runTurn's startTurn (status → 'running') are two
+  //   dispatches in the same effect tick; React 18 (createRoot) auto-batches them
+  //   into ONE commit, so the effect never re-observes the same head with status
+  //   still 'idle' → no double-send. `break` = one flush per pass; FIFO across
+  //   passes (next finishTurn → idle re-fires the effect for the following item).
+  // - routePendingRef guard closes the routing race: if a normal send is mid-
+  //   routing (classifier await / confirm dialog open) the session is still 'idle'
+  //   but a runTurn is about to fire for it — flushing now would stack two turns.
+  // - Skip non-open tabs: a soft-closed tab (closeTab → open:false) must not
+  //   silently fire turns in the background.
+  // Routing is bypassed for queued sends: the queued modelId is used as-is.
+  useEffect(() => {
+    if (!claudeOk) return
+    if (routePendingRef.current) return
+    for (const s of sessions) {
+      if (s.status !== 'idle' || s.open === false) continue
+      const head = s.queued?.[0]
+      if (!head) continue
+      sessionsDispatch({ type: 'removeQueued', sessionId: s.id, id: head.id })
+      runTurn(s, head.text, head.modelId, head.effort, head.images)
+      break // one flush per effect pass; the next idle render flushes the following item
+    }
+    // runTurn/sessions read fresh each render; guarded by status checks above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, claudeOk])
+
   const centerView = (() => {
     switch (activity) {
       case 'tasks':
@@ -861,6 +935,10 @@ export default function App(): JSX.Element {
             onChangePermission={setPermissionMode}
             onSetCwd={(path) => sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
             onFork={(text) => forkSession(text)}
+            queued={activeSession.queued ?? []}
+            onEnqueue={enqueueMessage}
+            onInterrupt={interruptAndSend}
+            onRemoveQueued={removeQueued}
           />
         )
     }
