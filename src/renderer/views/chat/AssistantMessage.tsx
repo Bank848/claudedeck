@@ -112,6 +112,9 @@ export const AssistantMessage = memo(function AssistantMessage({ message }: Assi
           if (part.kind === 'thinking') {
             return <ThinkingBlock key={i} text={part.text} />
           }
+          if (part.kind === 'spawn-chip') {
+            return <SpawnChip key={part.chip.toolUseId} chip={part.chip} />
+          }
           return null
         })}
 

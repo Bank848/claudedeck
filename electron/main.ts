@@ -10,7 +10,8 @@ import { decide, type Probe } from './mikuPreflight'
 import { prepareMiku, type SetupProgress } from './mikuSetup'
 import { downloadFile } from './download'
 import { rejectUnsafeUrl, rejectUnsafeUrlAllowLoopback } from './netGuard'
-import { detectClaude, startTurn, cancelTurn, cancelAllTurns, respondPermission } from './claude'
+import { detectClaude, startTurn, cancelTurn, cancelAllTurns, respondPermission, setSpawnTaskMcpConfig } from './claude'
+import { writeSpawnTaskMcpConfig } from './mcp/spawnTaskConfig'
 import { classifyTurn, type Tier } from './modelClassifier'
 import type { PermissionDecision } from './permissionProtocol'
 import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from './auth'
@@ -879,6 +880,15 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   installCsp() // before any window loads — CRIT-2a
   registerIpc()
+  // Inject ClaudeDeck's spawn_task MCP tool into every inner-CLI turn (best-effort;
+  // the writer swallows errors and returns undefined, leaving turns unaffected).
+  setSpawnTaskMcpConfig(
+    writeSpawnTaskMcpConfig(
+      app.getPath('userData'),
+      join(__dirname, 'spawnTaskServer.js'),
+      process.execPath,
+    ),
+  )
   createSplash()
   createMainWindow()
 

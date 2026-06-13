@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import type { ChatMessage, Session } from '@/mock/fixtures'
 import type { Effort, PermissionMode, QueuedMessage, PermissionRequestMsg } from '@/cli/types'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
+import { SpawnContext } from './SpawnChip'
 import { PermissionPrompt } from './PermissionPrompt'
 import { Composer, type ComposerHandle } from './Composer'
 
@@ -16,6 +17,7 @@ export default function ChatView({
   onChangePermission,
   onSetCwd,
   onFork,
+  onSpawnTask,
   queued,
   onEnqueue,
   onInterrupt,
@@ -34,6 +36,8 @@ export default function ChatView({
   onChangePermission: (mode: PermissionMode) => void
   onSetCwd: (path: string) => void
   onFork?: (seedText: string) => void
+  /** Open a new tab in the given folder seeded with `prompt` (assistant spawn_task chip). */
+  onSpawnTask?: (prompt: string, cwd?: string) => void
   queued?: QueuedMessage[]
   onEnqueue?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
   onInterrupt?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
@@ -45,6 +49,13 @@ export default function ChatView({
   th?: boolean
 }): JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  // Spawn action + current cwd for any spawn_task chip rendered in the message tree.
+  // Context bypasses AssistantMessage's React.memo, so only live chips re-render.
+  const spawnCtx = useMemo(
+    () => ({ onSpawn: onSpawnTask ?? (() => {}), sessionCwd: session.cwd }),
+    [onSpawnTask, session.cwd],
+  )
 
   // Auto-scroll to bottom when messages change OR a permission prompt appears, so
   // the in-chat Allow/Deny card is never stranded below the fold.
@@ -91,13 +102,15 @@ export default function ChatView({
             <EmptyState />
           ) : (
             <>
-              {session.messages.map((msg) =>
-                msg.role === 'user' ? (
-                  <UserMessage key={msg.id} message={msg} />
-                ) : (
-                  <AssistantMessage key={msg.id} message={msg} />
-                )
-              )}
+              <SpawnContext.Provider value={spawnCtx}>
+                {session.messages.map((msg) =>
+                  msg.role === 'user' ? (
+                    <UserMessage key={msg.id} message={msg} />
+                  ) : (
+                    <AssistantMessage key={msg.id} message={msg} />
+                  )
+                )}
+              </SpawnContext.Provider>
               <div ref={bottomRef} />
             </>
           )}

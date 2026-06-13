@@ -11,7 +11,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { index: resolve('electron/main.ts') },
+        input: {
+          index: resolve('electron/main.ts'),
+          spawnTaskServer: resolve('electron/mcp/spawnTaskServer.ts'),
+        },
       },
     },
   },

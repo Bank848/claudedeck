@@ -1006,6 +1006,7 @@ export default function App(): JSX.Element {
             onChangePermission={setPermissionMode}
             onSetCwd={(path) => sessionsDispatch({ type: 'setCwd', sessionId: activeSession.id, cwd: path })}
             onSpawn={(text) => spawnTask(text)}
+            onSpawnTask={spawnTask}
             queued={activeSession.queued ?? []}
             onEnqueue={enqueueMessage}
             onInterrupt={interruptAndSend}
