@@ -79,6 +79,67 @@ describe('sessionsReducer', () => {
     expect(s1.sessions[0].cwd).toBe('D:/new/path')
     expect(s1.sessions[1].cwd).toBe(otherCwd)
   })
+
+  it('enqueue appends a queued message in FIFO order', () => {
+    const s0 = stateWithSession('x')
+    const s1 = sessionsReducer(s0, {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q1', text: 'first', modelId: 'opus-4-8' },
+    })
+    const s2 = sessionsReducer(s1, {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q2', text: 'second', modelId: 'opus-4-8' },
+    })
+    expect(s2.sessions[0].queued?.map((q) => q.id)).toEqual(['q1', 'q2'])
+    // immutability: original untouched
+    expect(s0.sessions[0].queued).toBeUndefined()
+  })
+
+  it('removeQueued drops the matching message by id', () => {
+    const base = sessionsReducer(stateWithSession('x'), {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q1', text: 'a', modelId: 'opus-4-8' },
+    })
+    const withTwo = sessionsReducer(base, {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q2', text: 'b', modelId: 'opus-4-8' },
+    })
+    const after = sessionsReducer(withTwo, { type: 'removeQueued', sessionId: 'x', id: 'q1' })
+    expect(after.sessions[0].queued?.map((q) => q.id)).toEqual(['q2'])
+  })
+
+  it('updateQueued edits the text of a queued message', () => {
+    const base = sessionsReducer(stateWithSession('x'), {
+      type: 'enqueue', sessionId: 'x',
+      message: { id: 'q1', text: 'old', modelId: 'opus-4-8' },
+    })
+    const after = sessionsReducer(base, { type: 'updateQueued', sessionId: 'x', id: 'q1', text: 'new' })
+    expect(after.sessions[0].queued?.[0].text).toBe('new')
+  })
+
+  it('removeQueued on an empty queue is a no-op (no throw)', () => {
+    const s0 = stateWithSession('x')
+    const after = sessionsReducer(s0, { type: 'removeQueued', sessionId: 'x', id: 'nope' })
+    expect(after.sessions[0].queued ?? []).toEqual([])
+  })
+
+  it('enqueueFront inserts at the head (interrupt jumps the line)', () => {
+    const withTwo = [
+      { type: 'enqueue' as const, sessionId: 'x', message: { id: 'q1', text: 'a', modelId: 'opus-4-8' } },
+      { type: 'enqueue' as const, sessionId: 'x', message: { id: 'q2', text: 'b', modelId: 'opus-4-8' } },
+    ].reduce(sessionsReducer, stateWithSession('x'))
+    const after = sessionsReducer(withTwo, {
+      type: 'enqueueFront', sessionId: 'x',
+      message: { id: 'q0', text: 'now', modelId: 'opus-4-8' },
+    })
+    expect(after.sessions[0].queued?.map((q) => q.id)).toEqual(['q0', 'q1', 'q2'])
+  })
+
+  it('removeQueued/updateQueued on an unknown session id is a no-op (no throw)', () => {
+    const s0 = stateWithSession('x')
+    expect(() => sessionsReducer(s0, { type: 'removeQueued', sessionId: 'nope', id: 'q1' })).not.toThrow()
+    expect(() => sessionsReducer(s0, { type: 'updateQueued', sessionId: 'nope', id: 'q1', text: 't' })).not.toThrow()
+  })
 })
 
 describe('session lifecycle', () => {

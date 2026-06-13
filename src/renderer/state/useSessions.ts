@@ -1,7 +1,7 @@
 import type { ChatMessage, Session, TerminalLine } from '@/mock/fixtures'
 import { foldEvent } from '@/cli/streamMapper'
 import type { ClaudeEvent } from '@/cli/types'
-import type { StoredSession, TurnUsage } from '@/cli/types'
+import type { QueuedMessage, StoredSession, TurnUsage } from '@/cli/types'
 import { contextTokensOf } from '@/settings/contextWindow'
 
 const MAX_TERMINAL_LINES = 500
@@ -26,6 +26,10 @@ export type SessionsAction =
   | { type: 'reopenTab'; sessionId: string }
   | { type: 'togglePin'; sessionId: string }
   | { type: 'setArchived'; sessionId: string; archived: boolean }
+  | { type: 'enqueue'; sessionId: string; message: QueuedMessage }
+  | { type: 'enqueueFront'; sessionId: string; message: QueuedMessage }
+  | { type: 'removeQueued'; sessionId: string; id: string }
+  | { type: 'updateQueued'; sessionId: string; id: string; text: string }
 
 /**
  * A blank, ready-to-type session. The app boots into one of these — no mock
@@ -114,6 +118,31 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
         ...s,
         archived: action.archived,
         open: action.archived ? false : s.open,
+      }))
+
+    case 'enqueue':
+      return patchSession(state, action.sessionId, (s) => ({
+        ...s,
+        queued: [...(s.queued ?? []), action.message],
+      }))
+
+    case 'enqueueFront':
+      // Interrupt: this message must be sent FIRST, ahead of anything already queued.
+      return patchSession(state, action.sessionId, (s) => ({
+        ...s,
+        queued: [action.message, ...(s.queued ?? [])],
+      }))
+
+    case 'removeQueued':
+      return patchSession(state, action.sessionId, (s) => ({
+        ...s,
+        queued: (s.queued ?? []).filter((q) => q.id !== action.id),
+      }))
+
+    case 'updateQueued':
+      return patchSession(state, action.sessionId, (s) => ({
+        ...s,
+        queued: (s.queued ?? []).map((q) => (q.id === action.id ? { ...q, text: action.text } : q)),
       }))
 
     case 'hydrate':
