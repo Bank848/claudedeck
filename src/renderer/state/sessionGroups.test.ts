@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupSessions } from './sessionGroups'
+import { groupSessions, recentSessions } from './sessionGroups'
 import { emptySession } from './useSessions'
 
 const mk = (id: string, over: Partial<ReturnType<typeof emptySession>> = {}) =>
@@ -34,5 +34,29 @@ describe('groupSessions', () => {
     ]
     expect(groupSessions(all, { query: 'PARSER' }).flatMap((g) => g.sessions.map((s) => s.id))).toEqual(['a'])
     expect(groupSessions(all, { query: 'renpy' }).flatMap((g) => g.sessions.map((s) => s.id))).toEqual(['b'])
+  })
+})
+
+describe('recentSessions', () => {
+  it('returns newest-first across folders, ignoring grouping', () => {
+    const r = recentSessions([
+      mk('a', { cwd: 'D:/work/alpha', updatedAt: '2026-06-13T01:00:00Z' }),
+      mk('b', { cwd: 'D:/work/beta', updatedAt: '2026-06-13T03:00:00Z' }),
+      mk('c', { cwd: 'D:/work/alpha', updatedAt: '2026-06-13T02:00:00Z' }),
+    ])
+    expect(r.map((s) => s.id)).toEqual(['b', 'c', 'a'])
+  })
+  it('caps at the limit', () => {
+    const all = ['a', 'b', 'c', 'd'].map((id, i) =>
+      mk(id, { updatedAt: `2026-06-13T0${i}:00:00Z` }),
+    )
+    expect(recentSessions(all, 2).map((s) => s.id)).toEqual(['d', 'c'])
+  })
+  it('excludes archived sessions', () => {
+    const r = recentSessions([
+      mk('a', { updatedAt: '2026-06-13T01:00:00Z' }),
+      mk('b', { updatedAt: '2026-06-13T09:00:00Z', archived: true }),
+    ])
+    expect(r.map((s) => s.id)).toEqual(['a'])
   })
 })

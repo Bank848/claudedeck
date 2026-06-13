@@ -49,3 +49,19 @@ export function groupSessions(
   groups.sort((a, b) => byPinThenRecency(a.sessions[0], b.sessions[0]))
   return groups
 }
+
+/**
+ * The most-recently-updated sessions across ALL folders, newest first.
+ *
+ * Folder grouping buries a freshly-used session at the bottom of a crowded
+ * bucket; this flat "Recent" list surfaces the last `limit` touched sessions
+ * regardless of which folder they live in. Archived sessions are excluded;
+ * pinning is ignored here (recency only) since pins already float inside groups.
+ */
+export function recentSessions(sessions: Session[], limit = 5): Session[] {
+  return sessions
+    .filter((s) => !s.archived)
+    .slice()
+    .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
+    .slice(0, Math.max(0, limit))
+}
