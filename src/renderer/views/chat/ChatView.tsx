@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import type { ChatMessage, Session } from '@/mock/fixtures'
-import type { Effort, PermissionMode } from '@/cli/types'
+import type { Effort, PermissionMode, QueuedMessage } from '@/cli/types'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
 import { Composer, type ComposerHandle } from './Composer'
@@ -15,6 +15,10 @@ export default function ChatView({
   onChangePermission,
   onSetCwd,
   onFork,
+  queued,
+  onEnqueue,
+  onInterrupt,
+  onRemoveQueued,
 }: {
   session: Session
   onSend: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
@@ -25,6 +29,10 @@ export default function ChatView({
   onChangePermission: (mode: PermissionMode) => void
   onSetCwd: (path: string) => void
   onFork?: (seedText: string) => void
+  queued?: QueuedMessage[]
+  onEnqueue?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
+  onInterrupt?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
+  onRemoveQueued?: (id: string) => void
 }): JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -97,6 +105,10 @@ export default function ChatView({
         onChangePermission={onChangePermission}
         onSetCwd={onSetCwd}
         onFork={onFork}
+        queued={queued}
+        onEnqueue={onEnqueue}
+        onInterrupt={onInterrupt}
+        onRemoveQueued={onRemoveQueued}
       />
     </div>
   )
