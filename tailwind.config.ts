@@ -21,6 +21,7 @@ const config: Config = {
         'accent-hover': 'rgb(var(--accent-hover) / <alpha-value>)',
         success: 'rgb(var(--success) / <alpha-value>)',
         destructive: 'rgb(var(--destructive) / <alpha-value>)',
+        warning: 'rgb(var(--warning) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],

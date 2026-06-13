@@ -168,6 +168,14 @@ const api = {
     },
   },
 
+  /** Per-session attention: title badge count + gated OS notifications (transient). */
+  attention: {
+    setCount: (n: number): void => ipcRenderer.send('app:set-attention-count', n),
+    notify: (msg: { kind: 'needsInput' | 'done'; name: string; sessionId: string }): void =>
+      ipcRenderer.send('app:notify', msg),
+    onFocusSession: (cb: (m: { sessionId: string }) => void): (() => void) => sub('app:focus-session', cb),
+  },
+
   /** Hybrid session persistence: our metadata index + claude's JSONL transcripts. */
   sessions: {
     load: (): Promise<import('./sessionStore').StoredSession[]> => ipcRenderer.invoke('sessions:load'),

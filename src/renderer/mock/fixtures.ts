@@ -124,6 +124,13 @@ export interface Session {
    */
   forkPending?: boolean
   /**
+   * Transient attention flag, orthogonal to `status`. `needsInput` = a permission/
+   * question is pending; `unread` = a background turn finished and hasn't been viewed.
+   * undefined = nothing to surface. Precedence: needsInput > unread. NEVER persisted
+   * (omitted from StoredSession), reset on restart.
+   */
+  attention?: 'needsInput' | 'unread'
+  /**
    * FIFO queue of messages the user typed while a turn was running. Flushed
    * one-at-a-time (each as its own turn) when this session goes back to 'idle'.
    * Transient UI state — not persisted via StoredSession.
