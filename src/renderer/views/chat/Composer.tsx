@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { ArrowUp, Mic, GitBranch, Square, X, ListPlus, Pencil } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
 import { ModePicker } from '@/components/controls/ModePicker'
@@ -8,6 +8,7 @@ import { PlusMenu } from '@/components/controls/PlusMenu'
 import { useSettings } from '@/settings/SettingsContext'
 import { useDictation } from '@/settings/speechRecognition'
 import { resolveLang } from '@/settings/speech'
+import { loadEffort, saveEffort } from '@/settings/uiPrefs'
 import { MODELS } from '@/mock/fixtures'
 import type { Effort, PermissionMode, QueuedMessage } from '@/cli/types'
 
@@ -68,7 +69,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const th = resolveLang(settings.voiceLang).short === 'th'
   const [value, setValue] = useState('')
   const [modelId, setModelId] = useState(() => seedModelId(model))
-  const [effort, setEffort] = useState<Effort | undefined>(undefined)
+  // Sticky across restarts (was: always reset to Auto). Persist on every change so
+  // the picker AND voice commands ("high effort", …) both stick.
+  const [effort, setEffort] = useState<Effort | undefined>(loadEffort)
+  useEffect(() => { saveEffort(effort) }, [effort])
   const [images, setImages] = useState<ImageDraft[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 

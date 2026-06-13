@@ -30,6 +30,7 @@ import SettingsView from '@/views/settings/SettingsView'
 import { ACTIVE_SESSION_ID, MODELS, type ActivityId, type Session } from '@/mock/fixtures'
 import { MODE_OPTIONS } from '@/settings/permissionModes'
 import { EFFORT_OPTIONS } from '@/settings/effortLevels'
+import { loadPermissionMode, savePermissionMode } from '@/settings/uiPrefs'
 import { useSessions, emptySession, toStored } from '@/state/useSessions'
 import * as sessionsClient from '@/state/sessionsClient'
 import { contextPct, contextTokensOf, crossed80 } from '@/settings/contextWindow'
@@ -63,7 +64,10 @@ export default function App(): JSX.Element {
   const auth = useAuth()
 
   const [claudeOk, setClaudeOk] = useState(false)
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('plan')
+  // Sticky across restarts (was: always reset to 'plan'). Persist on every change so
+  // the picker AND voice commands ("plan mode", "bypass", …) both stick.
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(loadPermissionMode)
+  useEffect(() => { savePermissionMode(permissionMode) }, [permissionMode])
   const [liveStatus, setLiveStatus] = useState('')
   // Persistent permission settings (P2/P3/P4) — curated once in Settings →
   // Permissions, saved to localStorage, sent to the CLI via --settings.
