@@ -135,6 +135,23 @@ export interface ImageAttachment {
   data: string
 }
 
+/**
+ * A message the user typed while a turn was already running. Queued in FIFO
+ * order on the session; flushed one-at-a-time as its own turn when the session
+ * returns to 'idle'. `modelId`/`effort`/`images` are captured at enqueue time so
+ * the queued send reproduces the model/effort/images the user composed (model
+ * routing is intentionally bypassed for queued sends — the choice was already
+ * made). Permission mode is NOT captured; the flush uses the session's current
+ * permission mode (latest-wins), which is the desired behavior.
+ */
+export interface QueuedMessage {
+  id: string
+  text: string
+  modelId: string
+  effort?: Effort
+  images?: ImageAttachment[]
+}
+
 export interface StartTurnRequest {
   turnId: string
   prompt: string

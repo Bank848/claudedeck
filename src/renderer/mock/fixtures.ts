@@ -123,6 +123,12 @@ export interface Session {
    * to it. Cleared after that turn starts. Never persisted.
    */
   forkPending?: boolean
+  /**
+   * FIFO queue of messages the user typed while a turn was running. Flushed
+   * one-at-a-time (each as its own turn) when this session goes back to 'idle'.
+   * Transient UI state — not persisted via StoredSession.
+   */
+  queued?: import('@/cli/types').QueuedMessage[]
 }
 
 /* ───────────────────────────────── Todos ───────────────────────────────────── */
