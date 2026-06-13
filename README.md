@@ -6,7 +6,7 @@ The app started as a design-first Claude-style shell and now includes a live bac
 
 Think of it as a quiet cockpit for long coding sessions: Claude thinks, tools run, sessions stay organized, and the voice assistant keeps you moving without breaking flow.
 
-ลองใช้ ClaudeDeck ถ้าคุณเขียนโค้ดกับ Claude บ่อย ๆ: มันเปลี่ยน terminal เปล่า ๆ ให้เป็น workspace มีแชต session diff task settings และเสียงช่วยอ่านครบในที่เดียว เหมาะกับงานยาวที่อยากให้ทุกอย่างเป็นระเบียบและตามต่อได้ง่าย.
+If you use Claude Code often, give ClaudeDeck a try. It turns the CLI into a cleaner desktop workspace with chat, sessions, live mode, voice, diffs, tasks, and settings in one place.
 
 ## Highlights
 
