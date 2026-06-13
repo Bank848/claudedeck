@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AuthStatus } from './auth'
+import type { UsageResult } from './usage'
 import type { GitStatus, Worktree, GitResult } from './git'
 import type { Verdict } from './mikuPreflight'
 
@@ -191,6 +192,11 @@ const api = {
     load: (): Promise<Record<string, unknown> | null | { __error: boolean }> =>
       ipcRenderer.invoke('settings:load'),
     save: (s: Record<string, unknown>): Promise<{ ok: boolean }> => ipcRenderer.invoke('settings:save', s),
+  },
+
+  /** On-demand OAuth usage fetch (never polls; fetch only when the Usage view mounts). */
+  usage: {
+    fetch: (): Promise<UsageResult> => ipcRenderer.invoke('usage:fetch'),
   },
 
   /** In-app auth: login / logout / status (Approach B). */

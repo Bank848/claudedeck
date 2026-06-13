@@ -15,6 +15,7 @@ import { writeSpawnTaskMcpConfig } from './mcp/spawnTaskConfig'
 import { classifyTurn, type Tier } from './modelClassifier'
 import type { PermissionDecision } from './permissionProtocol'
 import { getAuthStatus, startLogin, submitLoginCode, cancelLogin, logout } from './auth'
+import { fetchUsage } from './usage'
 import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd, gitForkWorktree } from './git'
 import { loadIndex, saveIndex, readTranscript, type StoredSession } from './sessionStore'
 import { loadSettings, saveSettings } from './settingsStore'
@@ -796,6 +797,9 @@ function registerIpc(): void {
       classifyTurn(prompt, restingTier),
     () => 'opus' as Tier,
   )
+
+  // ── Usage (on-demand OAuth fetch) ─────────────────────────────────────────
+  safeHandle(ipcMain, 'usage:fetch', () => fetchUsage(), () => ({ ok: false as const, error: 'Failed to load usage' }))
 
   // ── Auth (login/logout/status) ─────────────────────────────────────────────
   safeHandle(ipcMain, 'auth:status', () => getAuthStatus(), () => ({ loggedIn: false }))
