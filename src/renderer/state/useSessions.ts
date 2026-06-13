@@ -30,6 +30,7 @@ export type SessionsAction =
   | { type: 'enqueueFront'; sessionId: string; message: QueuedMessage }
   | { type: 'removeQueued'; sessionId: string; id: string }
   | { type: 'updateQueued'; sessionId: string; id: string; text: string }
+  | { type: 'setAttention'; sessionId: string; attention?: 'needsInput' | 'unread' }
 
 /**
  * A blank, ready-to-type session. The app boots into one of these — no mock
@@ -67,6 +68,7 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
         ...s,
         status: 'running',
         forkPending: undefined,
+        attention: undefined, // a fresh turn clears any prior needsInput/unread on this session
         messages: [...s.messages, action.userMessage, action.assistantMessage],
       }))
 
@@ -161,6 +163,12 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
         contextTokens: contextTokensOf(action.usage),
         updatedAt: new Date().toISOString(),
       }))
+
+    case 'setAttention': {
+      const cur = state.sessions.find((s) => s.id === action.sessionId)
+      if (!cur || cur.attention === action.attention) return state // no-op: no needless re-render/persist
+      return patchSession(state, action.sessionId, (s) => ({ ...s, attention: action.attention }))
+    }
 
     default:
       return state

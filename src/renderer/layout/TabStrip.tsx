@@ -1,5 +1,6 @@
 import { X, Plus, Circle, GitBranch } from 'lucide-react'
-import type { Session, SessionStatus } from '@/mock/fixtures'
+import type { Session } from '@/mock/fixtures'
+import { indicatorKind, indicatorLabel, type IndicatorKind } from '@/state/sessionIndicator'
 
 interface TabStripProps {
   sessions: Session[]
@@ -11,11 +12,13 @@ interface TabStripProps {
   onFork?: (id: string) => void
 }
 
-const STATUS_COLOR: Record<SessionStatus, string> = {
-  active: 'text-accent',
-  running: 'text-success',
-  idle: 'text-fg-muted',
+const DOT_COLOR: Record<IndicatorKind, string> = {
+  needsInput: 'text-warning',
   error: 'text-destructive',
+  unread: 'text-success',
+  running: 'text-success',
+  active: 'text-accent',
+  idle: 'text-fg-muted',
 }
 
 export function TabStrip({ sessions, activeSessionId, onSelect, onNew, onClose, onFork }: TabStripProps): JSX.Element {
@@ -41,8 +44,8 @@ export function TabStrip({ sessions, activeSessionId, onSelect, onNew, onClose, 
                 aria-current={active ? 'page' : undefined}
                 className="flex min-w-0 items-center gap-2 py-0 pl-3 pr-1"
               >
-                <Circle size={8} className={`shrink-0 fill-current ${STATUS_COLOR[s.status]}`} aria-hidden="true" />
-                <span className="sr-only">{s.status}: </span>
+                <Circle size={8} className={`shrink-0 fill-current ${DOT_COLOR[indicatorKind(s)]}`} aria-hidden="true" />
+                <span className="sr-only">{indicatorLabel(s)}: </span>
                 <span className="truncate">{s.title}</span>
               </button>
               {onFork && (

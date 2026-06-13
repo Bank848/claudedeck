@@ -159,6 +159,15 @@ export default function App(): JSX.Element {
   // so the listener always sees the latest sessions without re-binding each render.
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
+  // onDone closures are created at turn-start; read the *current* active id through a
+  // ref so a tab switch during the turn is reflected when the turn finishes.
+  const activeSessionIdRef = useRef(activeSessionId)
+  activeSessionIdRef.current = activeSessionId
+  // decidePermission is async (awaits respondPermission); read the queue through a
+  // ref so the post-await "any prompt still pending?" check sees the CURRENT queue,
+  // not the stale closure value from the render that created the handler.
+  const permissionQueueRef = useRef(permissionQueue)
+  permissionQueueRef.current = permissionQueue
   useEffect(() => {
     const flush = (): void => {
       if (hydratedRef.current) void sessionsClient.saveIndex(sessionsRef.current.map(toStored))
@@ -634,9 +643,22 @@ export default function App(): JSX.Element {
         // tab lights up amber), never as a global modal over whatever tab is focused.
         setPermissionQueue((q) => [...q, { ...req, sessionId: sid }])
         speakStatus(th ? `ขออนุญาตใช้ ${req.tool}` : `Permission needed: ${req.tool}`)
+        sessionsDispatch({ type: 'setAttention', sessionId: sid, attention: 'needsInput' })
+        // Live title: the first turn auto-derives a title right after startTurn, so the
+        // captured `sess.title` may still be the "New session" placeholder.
+        const liveTitle = sessionsRef.current.find((s) => s.id === sid)?.title ?? sess.title
+        window.claudedeck?.attention?.notify({ kind: 'needsInput', name: liveTitle, sessionId: sid })
       },
       onDone: () => {
         sessionsDispatch({ type: 'finishTurn', sessionId: sid })
+        // Background session finished → mark unread so the dot/badge surfaces it.
+        if (sid !== activeSessionIdRef.current) {
+          sessionsDispatch({ type: 'setAttention', sessionId: sid, attention: 'unread' })
+        }
+        // Notify regardless of which tab; main gates on window focus. Live title so an
+        // auto-renamed session doesn't surface a stale "New session".
+        const liveTitle = sessionsRef.current.find((s) => s.id === sid)?.title ?? sess.title
+        window.claudedeck?.attention?.notify({ kind: 'done', name: liveTitle, sessionId: sid })
         // Drop any unanswered prompts for this finished turn.
         setPermissionQueue((q) => q.filter((r) => r.turnId !== turnId))
         activeTurnsRef.current = endActiveTurn(activeTurnsRef.current, sid, turnId)
@@ -784,6 +806,12 @@ export default function App(): JSX.Element {
     const outcome = permissionResponseOutcome(ok)
     if (outcome.dequeue) setPermissionQueue((q) => q.filter((r) => r.id !== req.id))
     if (outcome.expired) speakStatus(say(STATUS.expired))
+    // Clear the amber dot only when this was the LAST pending prompt for the session.
+    // `permissionQueue` here is the pre-removal closure value, so exclude the answered id.
+    const stillPending = permissionQueueRef.current.some((r) => r.sessionId === req.sessionId && r.id !== req.id)
+    if (req.sessionId && !stillPending) {
+      sessionsDispatch({ type: 'setAttention', sessionId: req.sessionId, attention: undefined })
+    }
   }
   // Allow now AND persist the tool to the allow list so it never asks again.
   const alwaysAllowPermission = (req: PermissionRequestMsg): void => {
@@ -916,6 +944,34 @@ export default function App(): JSX.Element {
     // runTurn/sessions read fresh each render; guarded by status checks above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions, claudeOk])
+
+  // Viewing a session clears its attention (you've now seen it). Covers every entry
+  // point (tab/sidebar/voice/notification) via the single activeSessionId signal.
+  // The reducer's no-op guard makes a clear against an already-clear session free.
+  useEffect(() => {
+    sessionsDispatch({ type: 'setAttention', sessionId: activeSessionId, attention: undefined })
+  }, [activeSessionId])
+
+  // Window-title badge: count sessions awaiting attention. Main turns N into the title.
+  // Guard: `sessions` churns every stream event; only push when the COUNT actually changes.
+  const lastAttentionCountRef = useRef(-1)
+  useEffect(() => {
+    const n = sessions.filter((s) => s.attention != null).length
+    if (n === lastAttentionCountRef.current) return
+    lastAttentionCountRef.current = n
+    window.claudedeck?.attention?.setCount(n)
+  }, [sessions])
+
+  // A clicked OS notification asks us to jump to its session (main already focused
+  // the window). Switch tab + show chat.
+  useEffect(() => {
+    const off = window.claudedeck?.attention?.onFocusSession?.(({ sessionId }) => {
+      setActiveSessionId(sessionId)
+      setActivity('chat')
+    })
+    return off
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const centerView = (() => {
     switch (activity) {

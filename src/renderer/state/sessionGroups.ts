@@ -12,8 +12,11 @@ function basename(cwd: string): string {
   return cwd.split(/[/\\]/).filter(Boolean).pop() || 'Unknown'
 }
 
-/** pinned first, then most-recently-updated. Stable for equal keys. */
-function byPinThenRecency(a: Session, b: Session): number {
+/** needsInput first, then pinned, then most-recently-updated. Stable for equal keys. */
+function byAttentionThenPinThenRecency(a: Session, b: Session): number {
+  const an = a.attention === 'needsInput'
+  const bn = b.attention === 'needsInput'
+  if (an !== bn) return an ? -1 : 1
   if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1
   return (b.updatedAt || '').localeCompare(a.updatedAt || '')
 }
@@ -45,8 +48,8 @@ export function groupSessions(
   }
 
   const groups = [...buckets.values()]
-  for (const g of groups) g.sessions.sort(byPinThenRecency)
-  groups.sort((a, b) => byPinThenRecency(a.sessions[0], b.sessions[0]))
+  for (const g of groups) g.sessions.sort(byAttentionThenPinThenRecency)
+  groups.sort((a, b) => byAttentionThenPinThenRecency(a.sessions[0], b.sessions[0]))
   return groups
 }
 

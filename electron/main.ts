@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, session } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, session, Notification } from 'electron'
 import { join } from 'node:path'
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
@@ -18,6 +18,7 @@ import { gitStatus, gitBranches, gitCheckout, gitWorktrees, gitWorktreeAdd, gitF
 import { loadIndex, saveIndex, readTranscript, type StoredSession } from './sessionStore'
 import { loadSettings, saveSettings } from './settingsStore'
 import { safeSend, safeHandle, errMsg } from './ipc'
+import { notificationContent, type NotifyKind } from './attentionNotify'
 
 const isDev = !app.isPackaged
 const MIN_SPLASH_MS = 1100
@@ -468,6 +469,34 @@ function registerIpc(): void {
     else mainWindow.maximize()
   })
   ipcMain.on('window:close', () => mainWindow?.close())
+
+  // ── Per-session attention (transient): title badge + gated OS notification ──
+  ipcMain.on('app:set-attention-count', (_e, n: number) => {
+    if (!mainWindow) return
+    mainWindow.setTitle(typeof n === 'number' && n > 0 ? `ClaudeDeck (${n})` : 'ClaudeDeck')
+  })
+
+  ipcMain.on(
+    'app:notify',
+    (_e, msg: { kind: NotifyKind; name: string; sessionId: string }) => {
+      // Validate the renderer payload at the trust boundary: `kind` is the only field
+      // that branches behavior, and an out-of-contract value (e.g. an IndicatorKind
+      // like 'unread') would silently emit a wrong toast.
+      if (!msg || (msg.kind !== 'needsInput' && msg.kind !== 'done')) return
+      // Only notify when the window is NOT focused; otherwise the in-app dot suffices.
+      if (!mainWindow || mainWindow.isFocused()) return
+      if (!Notification.isSupported()) return
+      const { title, body } = notificationContent(msg.kind, msg.name || '')
+      const n = new Notification({ title, body })
+      n.on('click', () => {
+        if (!mainWindow) return
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.focus()
+        safeSend(mainWindow, 'app:focus-session', { sessionId: msg.sessionId })
+      })
+      n.show()
+    },
+  )
   // Every `handle` below goes through safeHandle: the callback can never reject
   // and never returns a non-clonable value, so no channel can produce the
   // renderer's "Error invoking remote method '…'" overlay. On failure it logs in

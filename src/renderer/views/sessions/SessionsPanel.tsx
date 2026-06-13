@@ -1,13 +1,19 @@
 import { useMemo, useState } from 'react'
 import { Plus, GitBranch, Pin, Archive, ArchiveRestore, Trash2, Search, ChevronDown, ChevronRight } from 'lucide-react'
-import { type Session, type SessionStatus } from '@/mock/fixtures'
+import { type Session } from '@/mock/fixtures'
 import { groupSessions, recentSessions } from '@/state/sessionGroups'
+import { indicatorKind, indicatorLabel, type IndicatorKind } from '@/state/sessionIndicator'
 
 /** How many recently-touched sessions the "Recent" strip surfaces. */
 const RECENT_LIMIT = 5
 
-const STATUS_DOT: Record<SessionStatus, string> = {
-  active: 'bg-accent', running: 'bg-success', idle: 'bg-fg-muted', error: 'bg-destructive',
+const DOT_CLASS: Record<IndicatorKind, string> = {
+  needsInput: 'bg-warning',
+  error: 'bg-destructive',
+  unread: 'bg-success',
+  running: 'bg-success',
+  active: 'bg-accent',
+  idle: 'bg-fg-muted',
 }
 
 function getRelativeTime(isoString: string): string {
@@ -235,7 +241,7 @@ function SessionRow({
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [draft, setDraft] = useState(session.title)
   const openTab = session.open ? 'open' : 'idle'
-  const label = `${session.title}, ${openTab}, ${session.model}, ${getRelativeTime(session.updatedAt)}${session.pinned ? ', pinned' : ''}`
+  const label = `${session.title}, ${indicatorLabel(session)}, ${openTab}, ${session.model}, ${getRelativeTime(session.updatedAt)}${session.pinned ? ', pinned' : ''}`
 
   const commitRename = (): void => {
     const t = draft.trim()
@@ -294,7 +300,7 @@ function SessionRow({
           >
             <div className="flex items-center gap-2">
               {session.pinned && <Pin size={10} className="shrink-0 text-accent" aria-hidden="true" />}
-              <span className={`h-2 w-2 shrink-0 rounded-full ${session.open ? STATUS_DOT[session.status] : 'bg-transparent ring-1 ring-fg-muted'}`} aria-hidden="true" />
+              <span className={`h-2 w-2 shrink-0 rounded-full ${session.open ? DOT_CLASS[indicatorKind(session)] : 'bg-transparent ring-1 ring-fg-muted'}`} aria-hidden="true" />
               <span className="truncate text-sm font-medium text-fg">{session.title}</span>
             </div>
             <div className="flex items-center gap-1 pl-4 text-xs text-fg-muted">
