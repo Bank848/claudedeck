@@ -31,6 +31,7 @@ interface SessionsPanelProps {
   onSelect: (id: string) => void
   onFork?: () => void
   onNew?: () => void
+  onNewInFolder?: (cwd: string) => void
   onPin?: (id: string) => void
   onArchive?: (id: string) => void
   onUnarchive?: (id: string) => void
@@ -99,18 +100,29 @@ export default function SessionsPanel(props: SessionsPanelProps): JSX.Element {
             const isCollapsed = collapsed[g.project] ?? false
             return (
               <section key={g.project} role="group" aria-label={`Project ${g.project}`}>
-                <h3 className="px-1">
+                <h3 className="group/hdr flex items-center px-1">
                   <button
                     type="button"
                     onClick={() => setCollapsed((c) => ({ ...c, [g.project]: !isCollapsed }))}
                     aria-expanded={!isCollapsed}
                     title={g.cwd}
-                    className="flex w-full items-center gap-1 rounded px-1 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-fg-muted transition-colors hover:text-fg"
+                    className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-fg-muted transition-colors hover:text-fg"
                   >
                     {isCollapsed ? <ChevronRight size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
                     <span className="truncate">{g.project}</span>
                     <span className="ml-auto font-normal opacity-60">{g.sessions.length}</span>
                   </button>
+                  {props.onNewInFolder && (
+                    <button
+                      type="button"
+                      onClick={() => props.onNewInFolder?.(g.cwd)}
+                      aria-label={`New session in ${g.project}`}
+                      title={`New session in ${g.cwd}`}
+                      className="ml-0.5 shrink-0 rounded p-1 text-fg-muted opacity-0 transition-opacity hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent group-hover/hdr:opacity-100"
+                    >
+                      <Plus size={12} aria-hidden="true" />
+                    </button>
+                  )}
                 </h3>
                 {!isCollapsed && (
                   <ul aria-label={`${g.project} sessions`} className="mb-1 space-y-0.5 px-1">

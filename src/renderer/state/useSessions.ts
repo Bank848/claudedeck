@@ -37,9 +37,9 @@ export type SessionsAction =
  * the chat/todo/diff panels start from a clean empty state instead of demo
  * fixtures. cwd '' lets the main process fall back to its real working dir.
  */
-export function emptySession(id: string): Session {
+export function emptySession(id: string, cwd = ''): Session {
   const now = new Date().toISOString()
-  return { id, title: 'New session', cwd: '', status: 'idle', model: 'opus-4-8', updatedAt: now, createdAt: now, open: true, archived: false, pinned: false, tokens: 0, contextTokens: 0, messages: [], terminalLines: [] }
+  return { id, title: 'New session', cwd, status: 'idle', model: 'opus-4-8', updatedAt: now, createdAt: now, open: true, archived: false, pinned: false, tokens: 0, contextTokens: 0, messages: [], terminalLines: [] }
 }
 
 export function toStored(s: Session): StoredSession {

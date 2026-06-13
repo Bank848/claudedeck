@@ -32,6 +32,7 @@ import { MODE_OPTIONS } from '@/settings/permissionModes'
 import { EFFORT_OPTIONS } from '@/settings/effortLevels'
 import { loadPermissionMode, savePermissionMode } from '@/settings/uiPrefs'
 import { useSessions, emptySession, toStored } from '@/state/useSessions'
+import { deriveSessionTitle, isDefaultTitle } from '@/state/sessionTitle'
 import * as sessionsClient from '@/state/sessionsClient'
 import { contextPct, contextTokensOf, crossed80 } from '@/settings/contextWindow'
 import type { ComposerHandle } from '@/views/chat/Composer'
@@ -566,6 +567,14 @@ export default function App(): JSX.Element {
     }
     sessionsDispatch({ type: 'startTurn', sessionId: sid, userMessage, assistantMessage })
 
+    // Auto-name a still-unnamed session from its first message, so the tab stops
+    // reading "New session" the moment the user sends something. Manual renames
+    // win: once the title differs from the placeholder we never overwrite it.
+    if (isDefaultTitle(sess.title)) {
+      const title = deriveSessionTitle(text)
+      if (title) sessionsDispatch({ type: 'setTitle', sessionId: sid, title })
+    }
+
     if (!useLive) {
       sessionsDispatch({ type: 'finishTurn', sessionId: sid })
       return
@@ -786,9 +795,13 @@ export default function App(): JSX.Element {
   }
 
   // ── Session tab lifecycle (new / close / reopen-with-history) ─────────────
-  const newSession = (): void => {
+  // New session inherits the current folder by default (carry the last cwd
+  // forward, like Codex), or binds to an explicit folder when one is passed
+  // (the per-project "+" button in the session library).
+  const newSession = (cwd?: string): void => {
     const id = nextId('s')
-    sessionsDispatch({ type: 'createSession', session: emptySession(id) })
+    const dir = cwd ?? activeSession?.cwd ?? ''
+    sessionsDispatch({ type: 'createSession', session: emptySession(id, dir) })
     setActiveSessionId(id)
     speakStatus(say({ th: 'เปิดเซสชันใหม่', en: 'New session' }))
   }
@@ -993,6 +1006,7 @@ export default function App(): JSX.Element {
                   onSelectSession={(id) => void reopenSession(id)}
                   onFork={() => forkSession()}
                   onNew={newSession}
+                  onNewInFolder={newSession}
                   onPin={pinSession}
                   onArchive={archiveSession}
                   onUnarchive={unarchiveSession}

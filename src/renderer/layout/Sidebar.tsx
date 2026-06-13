@@ -8,6 +8,7 @@ interface SidebarProps {
   onSelectSession: (id: string) => void
   onFork?: () => void
   onNew?: () => void
+  onNewInFolder?: (cwd: string) => void
   onPin?: (id: string) => void
   onArchive?: (id: string) => void
   onUnarchive?: (id: string) => void
@@ -33,6 +34,7 @@ export function Sidebar({
   onSelectSession,
   onFork,
   onNew,
+  onNewInFolder,
   onPin,
   onArchive,
   onUnarchive,
@@ -52,6 +54,7 @@ export function Sidebar({
           onSelectSession={onSelectSession}
           onFork={onFork}
           onNew={onNew}
+          onNewInFolder={onNewInFolder}
           onPin={onPin}
           onArchive={onArchive}
           onUnarchive={onUnarchive}
@@ -70,6 +73,7 @@ function SidebarBody({
   onSelectSession,
   onFork,
   onNew,
+  onNewInFolder,
   onPin,
   onArchive,
   onUnarchive,
@@ -84,6 +88,7 @@ function SidebarBody({
         onSelect={onSelectSession}
         onFork={onFork}
         onNew={onNew}
+        onNewInFolder={onNewInFolder}
         onPin={onPin}
         onArchive={onArchive}
         onUnarchive={onUnarchive}

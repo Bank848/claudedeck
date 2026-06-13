@@ -5,9 +5,11 @@ import { CodeBlock } from './CodeBlock'
 import { ToolCallCard } from './ToolCallCard'
 import { ThinkingBlock } from './ThinkingBlock'
 import { StreamingCursor } from './StreamingCursor'
+import { ElapsedTimer } from './ElapsedTimer'
 import { ReadAloudButton } from './ReadAloudButton'
 import { MODELS, type ChatMessage } from '@/mock/fixtures'
-import { plainSpeakableText } from '@/settings/speech'
+import { plainSpeakableText, resolveLang } from '@/settings/speech'
+import { useSettings } from '@/settings/SettingsContext'
 
 /** Short label for the per-turn model badge (e.g. "Fable 5"); '' when unknown/unset. */
 function modelBadge(id: string | undefined): string {
@@ -46,6 +48,8 @@ function speakableText(message: ChatMessage): string {
 // re-render — and re-parsing markdown / re-highlighting code — on every token.
 export const AssistantMessage = memo(function AssistantMessage({ message }: AssistantMessageProps): JSX.Element {
   const parts = message.parts
+  const { settings } = useSettings()
+  const th = resolveLang(settings.voiceLang).short === 'th'
 
   return (
     <div className="flex gap-3 mb-6 group">
@@ -60,7 +64,7 @@ export const AssistantMessage = memo(function AssistantMessage({ message }: Assi
       <div className="min-w-0 flex-1">
         {/* Timestamp + read-aloud */}
         <div className="mb-1 flex items-center gap-1">
-          <span className="text-xs text-fg-muted tabular-nums opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="text-xs text-fg-muted tabular-nums">
             {formatTime(message.createdAt)}
           </span>
           {modelBadge(message.model) && (
@@ -91,9 +95,18 @@ export const AssistantMessage = memo(function AssistantMessage({ message }: Assi
         })}
 
         {message.streaming && (
-          <span className="mt-1 inline-block text-sm text-fg">
+          <div className="mt-1 flex items-center gap-2 text-sm text-fg" role="status" aria-live="off">
+            <span
+              aria-hidden="true"
+              className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent"
+            />
+            <span className="text-xs text-fg-muted">{th ? 'กำลังทำงาน' : 'Working'}</span>
+            <span className="text-xs text-fg-muted">·</span>
+            <span className="text-xs text-fg-muted">
+              <ElapsedTimer startIso={message.createdAt} />
+            </span>
             <StreamingCursor />
-          </span>
+          </div>
         )}
       </div>
     </div>
