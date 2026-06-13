@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
-import { ArrowUp, Mic, GitBranch, Square, X } from 'lucide-react'
+import { ArrowUp, Mic, GitBranch, Square, X, ListPlus, Pencil } from 'lucide-react'
 import { ModelPicker } from '@/components/ModelPicker'
 import { ModePicker } from '@/components/controls/ModePicker'
 import { EffortPicker } from '@/components/controls/EffortPicker'
@@ -9,7 +9,7 @@ import { useSettings } from '@/settings/SettingsContext'
 import { useDictation } from '@/settings/speechRecognition'
 import { resolveLang } from '@/settings/speech'
 import { MODELS } from '@/mock/fixtures'
-import type { Effort, PermissionMode } from '@/cli/types'
+import type { Effort, PermissionMode, QueuedMessage } from '@/cli/types'
 
 export interface ComposerHandle {
   /** Submit the current text programmatically (used by the "ส่ง" voice command). */
@@ -44,6 +44,14 @@ interface ComposerProps {
   onSetCwd: (path: string) => void
   /** Fork the conversation into a new tab, seeding it with the current draft text. */
   onFork?: (seedText: string) => void
+  /** Queued messages for this session (typed while a turn was running). */
+  queued?: QueuedMessage[]
+  /** Enqueue the current draft while busy (Enter while a turn runs). */
+  onEnqueue?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
+  /** Interrupt: stop the running turn and send the current draft now (Ctrl+Enter). */
+  onInterrupt?: (text: string, modelId: string, effort?: Effort, images?: Array<{ mediaType: string; data: string }>) => void
+  /** Remove a queued message by id (chip X button). */
+  onRemoveQueued?: (id: string) => void
 }
 
 function seedModelId(label: string): string {
@@ -52,7 +60,8 @@ function seedModelId(label: string): string {
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { model, onSend, onStop, busy = false, tokens, permissionMode, onChangePermission, onSetCwd, onFork },
+  { model, onSend, onStop, busy = false, tokens, permissionMode, onChangePermission, onSetCwd, onFork,
+    queued = [], onEnqueue, onInterrupt, onRemoveQueued },
   ref,
 ): JSX.Element {
   const { settings } = useSettings()
@@ -75,13 +84,48 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     requestAnimationFrame(resize)
   }, resolveLang(settings.voiceLang).code)
 
-  const submit = (): void => {
-    if (busy) return
-    const text = value.trim()
-    if (!text && images.length === 0) return
-    onSend(text, modelId, effort, images.length ? images.map(({ mediaType, data }) => ({ mediaType, data })) : undefined)
+  const imagesPayload = (): Array<{ mediaType: string; data: string }> | undefined =>
+    images.length ? images.map(({ mediaType, data }) => ({ mediaType, data })) : undefined
+
+  const clearDraft = (): void => {
     setValue('')
     setImages([])
+    requestAnimationFrame(resize)
+  }
+
+  // While a turn is running, Enter queues the draft (auto-sent when the turn
+  // finishes) instead of being blocked. When idle, it sends normally.
+  const submit = (): void => {
+    const text = value.trim()
+    if (!text && images.length === 0) return
+    if (busy) {
+      if (!onEnqueue) return
+      onEnqueue(text, modelId, effort, imagesPayload())
+    } else {
+      onSend(text, modelId, effort, imagesPayload())
+    }
+    clearDraft()
+  }
+
+  // Ctrl+Enter while busy: stop the running turn and send this draft immediately.
+  const interrupt = (): void => {
+    const text = value.trim()
+    if (!text && images.length === 0) return
+    if (!onInterrupt) return
+    onInterrupt(text, modelId, effort, imagesPayload())
+    clearDraft()
+  }
+
+  // Pull a queued message back into the textarea to edit it. ALWAYS remove it from
+  // the queue first (unconditionally — not just while busy): if the session has
+  // just gone idle, the auto-flush effect is about to send this very item, so
+  // leaving it in the queue would double-send (once by flush, once on re-submit).
+  const editQueued = (q: QueuedMessage): void => {
+    onRemoveQueued?.(q.id)
+    setValue((v) => (v ? `${q.text} ${v}` : q.text))
+    setModelId(q.modelId)
+    setEffort(q.effort)
+    textareaRef.current?.focus()
     requestAnimationFrame(resize)
   }
 
@@ -116,13 +160,20 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   useImperativeHandle(ref, () => ({ submit, setModel: setModelId, setEffort }))
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      // Ctrl/Cmd+Enter: interrupt the running turn and send now.
+      e.preventDefault()
+      if (busy) interrupt()
+      else submit()
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       submit()
     }
   }
 
-  const canSend = !busy && (value.trim().length > 0 || images.length > 0)
+  const canSend = value.trim().length > 0 || images.length > 0
   const showMic = settings.speechToText && dictation.supported
 
   return (
@@ -130,6 +181,41 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       <div className="mx-auto max-w-3xl">
         {/* Input area */}
         <div className="flex flex-col rounded-2xl border border-border bg-bg transition-shadow focus-within:ring-2 focus-within:ring-accent/40">
+          {/* Queued messages (typed while a turn was running) */}
+          {queued.length > 0 && (
+            <ul className="flex flex-col gap-1 px-3 pt-2" aria-label={th ? 'คิวข้อความ' : 'Queued messages'}>
+              {queued.map((q, i) => (
+                <li
+                  key={q.id}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-2 py-1 text-xs text-fg-muted"
+                >
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] text-accent">
+                    {i + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => editQueued(q)}
+                    title={th ? 'แก้ไขข้อความในคิว' : 'Edit queued message'}
+                    aria-label={th ? `แก้ไขข้อความในคิวที่ ${i + 1}` : `Edit queued message ${i + 1}`}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                  >
+                    <Pencil size={11} className="shrink-0" />
+                    <span className="truncate">{q.text || (th ? '(รูปภาพ)' : '(image)')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveQueued?.(q.id)}
+                    title={th ? 'ลบออกจากคิว' : 'Remove from queue'}
+                    aria-label={th ? `ลบข้อความในคิวที่ ${i + 1}` : `Remove queued message ${i + 1}`}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-fg-muted hover:bg-destructive/20 hover:text-destructive focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <X size={11} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
           {/* Image thumbnails */}
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-2">
@@ -163,7 +249,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             aria-label="Message Claude"
-            placeholder={busy ? 'Working…' : dictation.listening ? 'Listening…' : 'Message Claude…'}
+            placeholder={busy ? (th ? 'พิมพ์เพื่อต่อคิว…' : 'Type to queue…') : dictation.listening ? 'Listening…' : 'Message Claude…'}
             rows={1}
             className="min-h-[44px] max-h-[200px] w-full resize-none bg-transparent px-4 py-3 text-sm text-fg placeholder:text-fg-muted focus:outline-none leading-relaxed"
             style={{ height: '44px' }}
@@ -209,23 +295,41 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <div className="flex items-center gap-2">
               <ModelPicker value={modelId} onChange={setModelId} />
               <UsagePill tokens={tokens} />
-              {busy && onStop ? (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  title={th ? 'หยุดการตอบ' : 'Stop generating'}
-                  aria-label={th ? 'หยุดการตอบ' : 'Stop generating'}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-destructive text-white transition-colors hover:bg-destructive/90 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  <Square size={13} fill="currentColor" />
-                </button>
+              {busy ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={submit}
+                    disabled={!canSend}
+                    title={th ? 'ต่อคิว (Enter) · แทรกทันที Ctrl+Enter' : 'Queue (Enter) · Ctrl+Enter to interrupt'}
+                    aria-label={th ? 'ต่อคิวข้อความ' : 'Queue message'}
+                    className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                      canSend
+                        ? 'bg-accent/80 hover:bg-accent text-white cursor-pointer'
+                        : 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                    }`}
+                  >
+                    <ListPlus size={14} />
+                  </button>
+                  {onStop && (
+                    <button
+                      type="button"
+                      onClick={onStop}
+                      title={th ? 'หยุดการตอบ' : 'Stop generating'}
+                      aria-label={th ? 'หยุดการตอบ' : 'Stop generating'}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-destructive text-white transition-colors hover:bg-destructive/90 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      <Square size={13} fill="currentColor" />
+                    </button>
+                  )}
+                </>
               ) : (
                 <button
                   type="button"
                   onClick={submit}
                   disabled={!canSend}
-                  title={busy ? 'Working…' : 'Send message'}
-                  aria-label={busy ? 'Working, please wait' : 'Send message'}
+                  title="Send message"
+                  aria-label="Send message"
                   className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                     canSend
                       ? 'bg-accent hover:bg-accent-hover text-white cursor-pointer'
