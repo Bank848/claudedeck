@@ -846,6 +846,33 @@ export default function App(): JSX.Element {
     }
     speakStatus(say({ th: 'ปิดแท็บแล้ว เซสชันยังอยู่ในแถบข้าง', en: 'Tab closed; session kept in the sidebar' }))
   }
+  const closeOtherTabs = (id: string): void => {
+    const openSessions = sessions.filter((s) => s.open)
+    sessionsDispatch({ type: 'closeOtherTabs', sessionId: id })
+    if (activeSessionId !== id) {
+      const kept = openSessions.find((s) => s.id === id)
+      if (kept) setActiveSessionId(id)
+    }
+  }
+
+  const closeAllTabs = (): void => {
+    sessionsDispatch({ type: 'closeAllTabs' })
+  }
+
+  const closeTabsToRight = (id: string): void => {
+    sessionsDispatch({ type: 'closeTabsToRight', sessionId: id })
+    const openSessions = sessions.filter((s) => s.open)
+    const pivot = openSessions.findIndex((s) => s.id === id)
+    const closedIds = new Set(pivot === -1 ? [] : openSessions.slice(pivot + 1).map((s) => s.id))
+    if (closedIds.has(activeSessionId)) {
+      setActiveSessionId(id)
+    }
+  }
+
+  const reorderTabs = (fromId: string, toId: string): void => {
+    sessionsDispatch({ type: 'reorderTabs', fromId, toId })
+  }
+
   const reopenSession = async (id: string): Promise<void> => {
     sessionsDispatch({ type: 'reopenTab', sessionId: id })
     setActiveSessionId(id)
@@ -1086,6 +1113,10 @@ export default function App(): JSX.Element {
                     onSelect={setActiveSessionId}
                     onNew={newSession}
                     onClose={closeSessionTab}
+                    onCloseOthers={closeOtherTabs}
+                    onCloseAll={closeAllTabs}
+                    onCloseToRight={closeTabsToRight}
+                    onReorder={reorderTabs}
                   />
                   <main aria-label={VIEW_NAMES[activity] ? say(VIEW_NAMES[activity]) : 'Main'} className="min-h-0 flex-1 overflow-hidden">{centerView}</main>
                 </div>

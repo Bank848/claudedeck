@@ -1,9 +1,54 @@
+import { useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
+import { Copy, Check } from 'lucide-react'
 
 interface MarkdownContentProps {
   text: string
+}
+
+/** Flatten a React children tree to its raw text (for copying a code fence). */
+function nodeToText(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(nodeToText).join('')
+  if (typeof node === 'object' && 'props' in node) {
+    return nodeToText((node as { props: { children?: ReactNode } }).props.children)
+  }
+  return ''
+}
+
+/**
+ * Fenced code block inside markdown prose. Renders the bordered box plus a
+ * copy button in the top-right corner so the whole snippet is one click to copy.
+ */
+function MarkdownPre({ children }: { children?: ReactNode }): JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const code = nodeToText(children).replace(/\n$/, '')
+
+  const handleCopy = (): void => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    })
+  }
+
+  return (
+    <div className="group/code relative my-2">
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label={copied ? 'Copied to clipboard' : 'Copy code'}
+        title={copied ? 'Copied!' : 'Copy code'}
+        className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-xs text-fg-muted opacity-0 transition-opacity hover:bg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover/code:opacity-100 cursor-pointer"
+      >
+        {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
+        <span>{copied ? 'Copied' : 'Copy'}</span>
+      </button>
+      <pre className="overflow-x-auto rounded-md border border-border bg-bg">{children}</pre>
+    </div>
+  )
 }
 
 const components: Components = {
@@ -47,9 +92,7 @@ const components: Components = {
       <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-fg">{children}</code>
     )
   },
-  pre: ({ children }) => (
-    <pre className="my-2 overflow-x-auto rounded-md border border-border bg-bg">{children}</pre>
-  ),
+  pre: ({ children }) => <MarkdownPre>{children}</MarkdownPre>,
   a: ({ children, href }) => (
     <a
       href={href}

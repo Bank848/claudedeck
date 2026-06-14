@@ -23,6 +23,10 @@ export type SessionsAction =
   | { type: 'setUsage'; sessionId: string; usage: TurnUsage }
   | { type: 'loadMessages'; sessionId: string; messages: ChatMessage[]; claudeSessionId?: string }
   | { type: 'closeTab'; sessionId: string }
+  | { type: 'closeAllTabs' }
+  | { type: 'closeOtherTabs'; sessionId: string }
+  | { type: 'closeTabsToRight'; sessionId: string }
+  | { type: 'reorderTabs'; fromId: string; toId: string }
   | { type: 'reopenTab'; sessionId: string }
   | { type: 'togglePin'; sessionId: string }
   | { type: 'setArchived'; sessionId: string; archived: boolean }
@@ -107,6 +111,30 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
     case 'closeTab':
       // Soft: drop out of the tab strip, stay in the library. Never deletes.
       return patchSession(state, action.sessionId, (s) => ({ ...s, open: false }))
+
+    case 'closeAllTabs':
+      return { sessions: state.sessions.map((s) => ({ ...s, open: false })) }
+
+    case 'closeOtherTabs':
+      return { sessions: state.sessions.map((s) => (s.id === action.sessionId ? s : { ...s, open: false })) }
+
+    case 'closeTabsToRight': {
+      const openIds = state.sessions.filter((s) => s.open).map((s) => s.id)
+      const pivot = openIds.indexOf(action.sessionId)
+      const toClose = new Set(pivot === -1 ? [] : openIds.slice(pivot + 1))
+      return { sessions: state.sessions.map((s) => (toClose.has(s.id) ? { ...s, open: false } : s)) }
+    }
+
+    case 'reorderTabs': {
+      const arr = [...state.sessions]
+      const fromIdx = arr.findIndex((s) => s.id === action.fromId)
+      const toIdx = arr.findIndex((s) => s.id === action.toId)
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return state
+      const [moved] = arr.splice(fromIdx, 1)
+      const insertAt = arr.findIndex((s) => s.id === action.toId)
+      arr.splice(insertAt, 0, moved)
+      return { sessions: arr }
+    }
 
     case 'reopenTab':
       return patchSession(state, action.sessionId, (s) => ({ ...s, open: true }))
