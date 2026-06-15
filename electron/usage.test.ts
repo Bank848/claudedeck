@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { parseCreds, mapUsage, fetchUsage } from './usage'
+
+const TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token'
+const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
 // ── parseCreds ───────────────────────────────────────────────────────────────
 
@@ -40,6 +43,15 @@ describe('parseCreds', () => {
     expect(result.token).toBe('tok')
     expect(result.subscriptionType).toBeUndefined()
     expect(result.rateLimitTier).toBeUndefined()
+  })
+
+  it('extracts refreshToken + expiresAt for token refresh', () => {
+    const json = JSON.stringify({
+      claudeAiOauth: { accessToken: 'tok', refreshToken: 'refresh-xyz', expiresAt: 1781391905212 },
+    })
+    const result = parseCreds(json)
+    expect(result.refreshToken).toBe('refresh-xyz')
+    expect(result.expiresAt).toBe(1781391905212)
   })
 })
 
@@ -196,5 +208,124 @@ describe('fetchUsage', () => {
       readFileFn: makeReadFile(new Error('boom')),
       fetchFn: makeFetch(0, new Error('boom')),
     })).resolves.toMatchObject({ ok: false })
+  })
+
+  it('surfaces re-auth error on 401 when no refreshToken present', async () => {
+    const result = await fetchUsage({
+      readFileFn: makeReadFile(CREDS_JSON),
+      fetchFn: makeFetch(401, {}),
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/re-auth|login|session expired/i)
+  })
+})
+
+// ── fetchUsage: token refresh ─────────────────────────────────────────────────
+
+const CREDS_WITH_REFRESH = JSON.stringify({
+  claudeAiOauth: {
+    accessToken: 'stale-tok',
+    refreshToken: 'refresh-xyz',
+    expiresAt: 1781391905212, // far in the past
+    subscriptionType: 'max',
+    rateLimitTier: 'max_20x',
+  },
+})
+
+/** Routes by URL: token endpoint → refresh response, usage endpoint → usage response. */
+function makeRoutedFetch(opts: {
+  usage: { status: number; body: unknown }[]
+  refresh: { status: number; body: unknown }
+}) {
+  const usageQueue = [...opts.usage]
+  const calls: string[] = []
+  const fn = vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push(`${init?.method ?? 'GET'} ${url}`)
+    if (url === TOKEN_URL) {
+      return { ok: opts.refresh.status >= 200 && opts.refresh.status < 300, status: opts.refresh.status, json: async () => opts.refresh.body } as Response
+    }
+    const next = usageQueue.shift() ?? opts.usage[opts.usage.length - 1]
+    return { ok: next.status >= 200 && next.status < 300, status: next.status, json: async () => next.body } as Response
+  })
+  return Object.assign(fn, { calls })
+}
+
+describe('fetchUsage token refresh', () => {
+  it('proactively refreshes an expired token before calling usage, then succeeds', async () => {
+    const written: string[] = []
+    const fetchFn = makeRoutedFetch({
+      usage: [{ status: 200, body: FULL_RAW }],
+      refresh: { status: 200, body: { access_token: 'fresh-tok', refresh_token: 'refresh-new', expires_in: 3600 } },
+    })
+    const result = await fetchUsage({
+      readFileFn: makeReadFile(CREDS_WITH_REFRESH),
+      fetchFn,
+      writeFileFn: async (_p, data) => { written.push(data) },
+    })
+    expect(result.ok).toBe(true)
+    // token endpoint hit before usage
+    expect(fetchFn.calls[0]).toContain(TOKEN_URL)
+    // usage called with fresh token
+    expect(fetchFn.mock.calls.some(([u, init]) =>
+      u === USAGE_URL && String((init as RequestInit)?.headers && (init as any).headers.Authorization).includes('fresh-tok'),
+    )).toBe(true)
+    // rotated creds persisted with new access + refresh token
+    expect(written.length).toBe(1)
+    const saved = JSON.parse(written[0]).claudeAiOauth
+    expect(saved.accessToken).toBe('fresh-tok')
+    expect(saved.refreshToken).toBe('refresh-new')
+    expect(saved.expiresAt).toBeGreaterThan(Date.now())
+    // preserves untouched fields
+    expect(saved.subscriptionType).toBe('max')
+  })
+
+  it('reactively refreshes on 401 then retries usage', async () => {
+    // token not clock-expired, but server rejects → 401 → refresh → retry 200
+    const notExpired = JSON.stringify({
+      claudeAiOauth: { accessToken: 'tok', refreshToken: 'r', expiresAt: Date.now() + 3_600_000 },
+    })
+    const fetchFn = makeRoutedFetch({
+      usage: [{ status: 401, body: {} }, { status: 200, body: FULL_RAW }],
+      refresh: { status: 200, body: { access_token: 'fresh', refresh_token: 'r2', expires_in: 3600 } },
+    })
+    const result = await fetchUsage({
+      readFileFn: makeReadFile(notExpired),
+      fetchFn,
+      writeFileFn: async () => {},
+    })
+    expect(result.ok).toBe(true)
+    expect(fetchFn.calls).toEqual([
+      `GET ${USAGE_URL}`,
+      `POST ${TOKEN_URL}`,
+      `GET ${USAGE_URL}`,
+    ])
+  })
+
+  it('surfaces re-auth error when refresh itself fails (invalid_grant)', async () => {
+    const fetchFn = makeRoutedFetch({
+      usage: [{ status: 401, body: {} }],
+      refresh: { status: 400, body: { error: 'invalid_grant' } },
+    })
+    const result = await fetchUsage({
+      readFileFn: makeReadFile(CREDS_WITH_REFRESH),
+      fetchFn,
+      writeFileFn: async () => {},
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/re-auth|login|session expired/i)
+  })
+
+  it('does not write creds when refresh fails', async () => {
+    const written: string[] = []
+    const fetchFn = makeRoutedFetch({
+      usage: [{ status: 401, body: {} }],
+      refresh: { status: 400, body: { error: 'invalid_grant' } },
+    })
+    await fetchUsage({
+      readFileFn: makeReadFile(CREDS_WITH_REFRESH),
+      fetchFn,
+      writeFileFn: async (_p, data) => { written.push(data) },
+    })
+    expect(written.length).toBe(0)
   })
 })

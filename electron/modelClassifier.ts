@@ -17,7 +17,7 @@ import { detectClaude, classifyLine } from './claude'
 import { buildInitialize, buildUserMessage } from './permissionProtocol'
 
 export type Tier = 'haiku' | 'sonnet' | 'opus' | 'fable'
-const TIERS: readonly Tier[] = ['haiku', 'sonnet', 'opus', 'fable']
+const TIERS: readonly Tier[] = ['haiku', 'sonnet', 'opus']
 
 const CLASSIFY_TIMEOUT_MS = 4000
 
@@ -37,9 +37,9 @@ export function buildClassifyArgs(): string[] {
 
 const classifyPrompt = (userPrompt: string): string =>
   'You are a model-routing classifier. Read the user\'s task and reply with EXACTLY ONE ' +
-  'word, lowercase, no punctuation, chosen from: haiku, sonnet, opus, fable. ' +
-  'haiku = trivial/mechanical; sonnet = normal coding or Q&A; opus = complex but routine; ' +
-  'fable = architecture, deep multi-step debugging, or high-stakes reasoning only.\n\nTASK:\n' +
+  'word, lowercase, no punctuation, chosen from: haiku, sonnet, opus. ' +
+  'haiku = trivial/mechanical; sonnet = normal coding or Q&A; ' +
+  'opus = complex, architecture, deep debugging, or high-stakes reasoning.\n\nTASK:\n' +
   userPrompt
 
 /**

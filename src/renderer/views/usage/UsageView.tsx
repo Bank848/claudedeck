@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Gauge, Clock, CalendarDays, RefreshCw } from 'lucide-react'
 import { formatResetsIn, type RealUsage, type UsageWindow } from '@/state/usage'
+
+const POLL_MS = 30 * 60 * 1_000
 
 function barColor(p: number): string {
   if (p >= 90) return 'bg-destructive'
@@ -10,23 +12,33 @@ function barColor(p: number): string {
 
 type State =
   | { status: 'loading' }
-  | { status: 'error'; error: string }
-  | { status: 'ready'; data: RealUsage }
+  | { status: 'error'; error: string; lastUpdated?: Date }
+  | { status: 'ready'; data: RealUsage; lastUpdated: Date }
 
 export default function UsageView(): JSX.Element {
   const [state, setState] = useState<State>({ status: 'loading' })
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const load = useCallback(() => {
-    setState({ status: 'loading' })
+  const load = useCallback((silent = false) => {
+    if (!silent) setState((prev) => prev.status === 'ready' ? prev : { status: 'loading' })
     let live = true
     window.claudedeck.usage.fetch().then((r) => {
       if (!live) return
-      setState(r.ok ? { status: 'ready', data: r.usage } : { status: 'error', error: r.error })
+      setState(r.ok
+        ? { status: 'ready', data: r.usage, lastUpdated: new Date() }
+        : { status: 'error', error: r.error, lastUpdated: new Date() })
     })
     return () => { live = false }
   }, [])
 
-  useEffect(() => load(), [load])
+  useEffect(() => {
+    const cleanup = load()
+    timerRef.current = setInterval(() => load(true), POLL_MS)
+    return () => {
+      cleanup?.()
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [load])
 
   const now = new Date()
 
@@ -49,16 +61,23 @@ export default function UsageView(): JSX.Element {
               )}
             </p>
           </div>
-          {state.status !== 'loading' && (
-            <button
-              onClick={load}
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-fg-muted hover:bg-surface-2 hover:text-fg"
-              title="Refresh usage"
-            >
-              <RefreshCw size={13} />
-              Refresh
-            </button>
-          )}
+          <div className="flex flex-col items-end gap-1">
+            {(state.status === 'ready' || state.status === 'error') && state.lastUpdated && (
+              <span className="text-[11px] text-fg-muted">
+                Updated {state.lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+            {state.status !== 'loading' && (
+              <button
+                onClick={() => load()}
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-fg-muted hover:bg-surface-2 hover:text-fg"
+                title="Refresh usage"
+              >
+                <RefreshCw size={13} />
+                Refresh
+              </button>
+            )}
+          </div>
         </div>
 
         {state.status === 'loading' && (
@@ -73,7 +92,7 @@ export default function UsageView(): JSX.Element {
           <div className="rounded-xl border border-border bg-surface p-6 text-center">
             <p className="mb-3 text-sm text-fg-muted">{state.error}</p>
             <button
-              onClick={load}
+              onClick={() => load()}
               className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white"
             >
               <RefreshCw size={13} />
@@ -83,51 +102,57 @@ export default function UsageView(): JSX.Element {
         )}
 
         {state.status === 'ready' && (
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              {state.data.fiveHour && (
-                <WindowCard
-                  label="5-hour limit"
-                  icon="clock"
-                  window={state.data.fiveHour}
-                  now={now}
-                />
-              )}
-              {state.data.sevenDay && (
-                <WindowCard
-                  label="Weekly limit"
-                  icon="calendar"
-                  window={state.data.sevenDay}
-                  now={now}
-                />
-              )}
-            </div>
-
-            {(state.data.sevenDayOpus || state.data.sevenDaySonnet) && (
-              <section className="rounded-xl border border-border bg-surface p-4">
-                <h2 className="mb-3 text-sm font-semibold text-fg">Per-model (this week)</h2>
-                <div className="space-y-3">
-                  {state.data.sevenDayOpus && (
-                    <ModelBar label="Claude Opus" window={state.data.sevenDayOpus} />
-                  )}
-                  {state.data.sevenDaySonnet && (
-                    <ModelBar label="Claude Sonnet" window={state.data.sevenDaySonnet} />
-                  )}
-                </div>
-              </section>
-            )}
-
-            {state.data.extraUsageEnabled && (
-              <p className="text-xs text-fg-muted">
-                <span className="mr-1 inline-block rounded-full bg-accent/20 px-2 py-0.5 text-accent">
-                  Extra usage on
-                </span>
-                Additional capacity beyond the standard limits is active.
-              </p>
-            )}
-          </div>
+          <ReadyContent data={state.data} now={now} />
         )}
       </div>
+    </div>
+  )
+}
+
+function ReadyContent({ data, now }: { data: RealUsage; now: Date }): JSX.Element {
+  const { fiveHour, sevenDay, sevenDayOpus, sevenDaySonnet } = data
+  const hasAnyWindow = fiveHour || sevenDay || sevenDayOpus || sevenDaySonnet
+
+  if (!hasAnyWindow) {
+    return (
+      <div className="rounded-xl border border-border bg-surface p-8 text-center">
+        <p className="mb-1 text-sm font-medium text-fg">No active rate-limit windows</p>
+        <p className="text-xs text-fg-muted">
+          Your plan may not expose per-window usage, or no tokens have been used yet this period.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {fiveHour && (
+          <WindowCard label="5-hour limit" icon="clock" window={fiveHour} now={now} />
+        )}
+        {sevenDay && (
+          <WindowCard label="Weekly limit" icon="calendar" window={sevenDay} now={now} />
+        )}
+      </div>
+
+      {(sevenDayOpus || sevenDaySonnet) && (
+        <section className="rounded-xl border border-border bg-surface p-4">
+          <h2 className="mb-3 text-sm font-semibold text-fg">Per-model (this week)</h2>
+          <div className="space-y-3">
+            {sevenDayOpus && <ModelBar label="Claude Opus" window={sevenDayOpus} />}
+            {sevenDaySonnet && <ModelBar label="Claude Sonnet" window={sevenDaySonnet} />}
+          </div>
+        </section>
+      )}
+
+      {data.extraUsageEnabled && (
+        <p className="text-xs text-fg-muted">
+          <span className="mr-1 inline-block rounded-full bg-accent/20 px-2 py-0.5 text-accent">
+            Extra usage on
+          </span>
+          Additional capacity beyond the standard limits is active.
+        </p>
+      )}
     </div>
   )
 }

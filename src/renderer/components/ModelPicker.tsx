@@ -38,11 +38,11 @@ export function ModelPicker({ value, onChange }: ModelPickerProps): JSX.Element 
       setActive((i) => nextRovingIndex(i, all.length, e.key))
     } else if (/^[1-9]$/.test(e.key)) {
       const idx = Number(e.key) - 1
-      if (idx < all.length) {
+      if (idx < all.length && !all[idx].unavailable) {
         onChange(all[idx].id)
         setOpen(false)
       }
-    } else if (e.key === 'Enter' && all[active]) {
+    } else if (e.key === 'Enter' && all[active] && !all[active].unavailable) {
       onChange(all[active].id)
       setOpen(false)
     }
@@ -163,21 +163,23 @@ function ModelRow({
   onRemove: () => void
   onFocus: () => void
 }): JSX.Element {
+  const unavailable = !!model.unavailable
   return (
     <div
-      className={`group flex items-center gap-2 px-2 ${selected ? 'bg-surface-2' : 'hover:bg-surface-2'}`}
+      className={`group flex items-center gap-2 px-2 ${unavailable ? 'opacity-40' : selected ? 'bg-surface-2' : 'hover:bg-surface-2'}`}
     >
       <button
         type="button"
         role="option"
         data-roving
         aria-selected={selected}
-        tabIndex={active ? 0 : -1}
+        aria-disabled={unavailable}
+        tabIndex={active && !unavailable ? 0 : -1}
         onFocus={onFocus}
-        onClick={onSelect}
-        className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left"
+        onClick={unavailable ? undefined : onSelect}
+        className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left${unavailable ? ' cursor-not-allowed' : ''}`}
       >
-        <span className="w-4 shrink-0 text-center font-mono text-[11px] text-fg-muted">{index < 9 ? index + 1 : ''}</span>
+        <span className="w-4 shrink-0 text-center font-mono text-[11px] text-fg-muted">{!unavailable && index < 9 ? index + 1 : ''}</span>
         <ProviderIcon size={14} />
         <span className="min-w-0">
           <span className="block truncate text-sm text-fg">{model.label}</span>
@@ -186,8 +188,8 @@ function ModelRow({
           )}
         </span>
       </button>
-      {selected && <Check size={14} className="shrink-0 text-accent" />}
-      {removable && (
+      {selected && !unavailable && <Check size={14} className="shrink-0 text-accent" />}
+      {removable && !unavailable && (
         <button
           type="button"
           onClick={onRemove}

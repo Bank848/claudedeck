@@ -301,7 +301,7 @@ export default function SettingsView({
         <Section icon={<Sparkles size={16} className="text-accent" />} title="การเลือกโมเดลอัตโนมัติ (Model routing)">
           <Row
             label="โหมดการเลือกโมเดล"
-            desc="ปิด = ใช้โมเดลที่เลือกไว้เอง · แนะนำ = แจ้งให้ยืนยันก่อนสลับ · อัตโนมัติ = สลับให้เลย (ยกเว้น Fable 5 — ถามก่อนเสมอ)."
+            desc="ปิด = ใช้โมเดลที่เลือกไว้เอง · แนะนำ = แจ้งให้ยืนยันก่อนสลับ · อัตโนมัติ = สลับให้เลย (ยกเว้น Opus — ถามก่อนเสมอ)."
           >
             <Segmented
               ariaLabel="โหมดการเลือกโมเดล"
@@ -319,7 +319,7 @@ export default function SettingsView({
               ariaLabel="โมเดลพื้นฐาน"
               value={settings.restingModel}
               onChange={(v) => update('restingModel', v)}
-              options={MODELS.map((m) => ({ value: m.id, label: m.label }))}
+              options={MODELS.filter((m) => !m.unavailable).map((m) => ({ value: m.id, label: m.label }))}
             />
           </Row>
           <Row label="ยืนยันทุกครั้ง" desc="แสดงกล่องยืนยันก่อนทุกเทิร์น แม้รุ่นที่แนะนำจะเท่าเดิมหรือถูกกว่า.">

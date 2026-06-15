@@ -20,7 +20,7 @@ export const TIER_TO_MODEL_ID: Record<Tier, string> = {
   haiku: 'haiku-4-5',
   sonnet: 'sonnet-4-6',
   opus: 'opus-4-8',
-  fable: 'fable-5',
+  fable: 'opus-4-8', // fable is unavailable — fallback to opus
 }
 
 /** Picker id → Tier. Unknown / custom-* / undefined fall back to the safe middle (opus). */
@@ -31,13 +31,14 @@ export function modelIdToTier(id: string | undefined): Tier {
     case 'sonnet-4-6':
       return 'sonnet'
     case 'fable-5':
-      return 'fable'
+      return 'opus' // fable is unavailable — treat as opus
     default:
       return 'opus'
   }
 }
 
-const up = (t: Tier): Tier => ORDERED[Math.min(TIER_ORDER[t] + 1, TIER_ORDER.fable)]
+// Cap upgrades at opus; fable is unavailable.
+const up = (t: Tier): Tier => ORDERED[Math.min(TIER_ORDER[t] + 1, TIER_ORDER.opus)]
 
 /* ── Heuristic signals (EN + TH; the primary user writes Thai) ─────────────────── */
 
@@ -135,9 +136,9 @@ export function suggestModelHeuristic(ctx: RoutingContext): Suggestion {
     return { tier: resting, confidence: 'low', reason: 'conflicting easy + hard signals', needsClassifier: true }
   }
 
-  // Strong hard → fable.
+  // Strong hard → opus (fable unavailable).
   if (fableHit || (trace && upHit)) {
-    return { tier: 'fable', confidence: 'high', reason: 'architecture / deep-reasoning signal', needsClassifier: false }
+    return { tier: 'opus', confidence: 'high', reason: 'architecture / deep-reasoning signal', needsClassifier: false }
   }
 
   // Mild hard → one tier up from resting.
@@ -178,8 +179,8 @@ const decision = (tier: Tier, action: 'silent' | 'confirm', suggestion: Suggesti
 
 /**
  * Pure. Combine a suggestion with the routing mode + resting model into the final
- * action. Never throws. Safety invariant: in `auto` mode an upgrade *to fable* still
- * requires confirmation — auto never silently spends the most expensive model.
+ * action. Never throws. Safety invariant: in `auto` mode an upgrade *to opus* still
+ * action. Never throws.
  */
 export function decideRouting(
   s: Suggestion,
@@ -194,8 +195,6 @@ export function decideRouting(
 
   if (mode === 'auto') {
     if (alwaysConfirm) return decision(s.tier, 'confirm', s)
-    // Auto NEVER auto-escalates to fable — that one upgrade always confirms.
-    if (s.tier === 'fable' && isUpgrade) return decision(s.tier, 'confirm', s)
     return decision(s.tier, 'silent', s)
   }
 

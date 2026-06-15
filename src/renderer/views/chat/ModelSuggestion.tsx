@@ -56,7 +56,6 @@ export function ModelSuggestion({ decision, restingTier, onChoose, tierLabel, th
   const buttons: { tier: Tier; label: string; primary?: boolean }[] = [
     { tier: suggested, label: `${th ? 'ใช้' : 'Use'} ${tierLabel(suggested)} (Enter)`, primary: true },
     { tier: restingTier, label: `${th ? 'ใช้ตัวเดิม' : 'Keep'} ${tierLabel(restingTier)} (Esc)` },
-    { tier: 'fable', label: `↑ ${tierLabel('fable')}` },
     { tier: 'haiku', label: `↓ ${tierLabel('haiku')}` },
   ]
 

@@ -28,10 +28,12 @@ export interface ModelOption {
   label: string
   /** Short note shown under the label in the picker. */
   sublabel?: string
+  /** When true the model is shown in the list but cannot be selected. */
+  unavailable?: boolean
 }
 
 export const MODELS: ModelOption[] = [
-  { id: 'fable-5', provider: 'claude', label: 'Claude Fable 5', sublabel: 'Hardest / high-stakes' },
+  { id: 'fable-5', provider: 'claude', label: 'Claude Fable 5', sublabel: 'ไม่พร้อมใช้งาน', unavailable: true },
   { id: 'opus-4-8', provider: 'claude', label: 'Claude Opus 4.8', sublabel: 'Deepest reasoning' },
   { id: 'sonnet-4-6', provider: 'claude', label: 'Claude Sonnet 4.6', sublabel: 'Best all-round' },
   { id: 'haiku-4-5', provider: 'claude', label: 'Claude Haiku 4.5', sublabel: 'Fast & cheap' },

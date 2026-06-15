@@ -42,6 +42,7 @@ import { startActiveTurn, endActiveTurn, activeTurnFor, type ActiveTurns } from 
 import type { Effort, PermissionMode, ClaudeEvent, PermissionSettings, PermissionRequestMsg, ImageAttachment } from '@/cli/types'
 import { loadPermissions, savePermissions } from '@/settings/permissionRules'
 import { PermissionPrompt } from '@/views/chat/PermissionPrompt'
+import { AskUserQuestionPrompt } from '@/views/chat/AskUserQuestionPrompt'
 import { ModelSuggestion } from '@/views/chat/ModelSuggestion'
 import { voiceToChoice } from '@/views/chat/modelSuggestionControls'
 import {
@@ -55,6 +56,7 @@ import {
 } from '@/settings/modelRouting'
 import { useAuth } from '@/cli/useAuth'
 import { LoginBanner } from '@/components/LoginBanner'
+import { BootScreen, useBootTimer } from '@/components/BootScreen'
 
 export default function App(): JSX.Element {
   const { settings, update } = useSettings()
@@ -64,6 +66,7 @@ export default function App(): JSX.Element {
   const auth = useAuth()
 
   const [claudeOk, setClaudeOk] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
   // Sticky across restarts (was: always reset to 'plan'). Persist on every change so
   // the picker AND voice commands ("plan mode", "bypass", …) both stick.
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(loadPermissionMode)
@@ -141,6 +144,7 @@ export default function App(): JSX.Element {
         setActiveSessionId(sessions[0].id)
       }
       hydratedRef.current = true
+      setHydrated(true)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -272,7 +276,6 @@ export default function App(): JSX.Element {
     { phrases: ['model opus', 'opus', 'โมเดลโอปุส', 'โอปุส'], run: () => composerRef.current?.setModel('opus-4-8'), confirm: th ? 'โมเดลโอปุส' : 'Opus', label: '“opus” / “โอปุส”' },
     { phrases: ['model sonnet', 'sonnet', 'โมเดลซอนเน็ต', 'ซอนเน็ต'], run: () => composerRef.current?.setModel('sonnet-4-6'), confirm: th ? 'โมเดลซอนเน็ต' : 'Sonnet', label: '“sonnet” / “ซอนเน็ต”' },
     { phrases: ['model haiku', 'haiku', 'โมเดลไฮกุ', 'ไฮกุ'], run: () => composerRef.current?.setModel('haiku-4-5'), confirm: th ? 'โมเดลไฮกุ' : 'Haiku', label: '“haiku” / “ไฮกุ”' },
-    { phrases: ['model fable', 'fable', 'โมเดลเฟเบิล', 'เฟเบิล'], run: () => composerRef.current?.setModel('fable-5'), confirm: th ? 'โมเดลเฟเบิล' : 'Fable', label: '“fable” / “เฟเบิล”' },
     // Reasoning effort by spoken level (TH+EN) → drives the Composer's local effort.
     ...EFFORT_OPTIONS.map<VoiceCommand>((o) => ({
       phrases: o.phrases,
@@ -798,10 +801,11 @@ export default function App(): JSX.Element {
   // then remove it by id. If the turn was already gone the response can't be
   // delivered (ok:false) — clear the stale entry anyway and SAY so, instead of
   // failing in total silence (#1, a11y).
-  const decidePermission = async (req: PermissionRequestMsg, decision: 'allow' | 'deny'): Promise<void> => {
+  const decidePermission = async (req: PermissionRequestMsg, decision: 'allow' | 'deny', overrideInput?: unknown): Promise<void> => {
     if (!req) return
+    const sendInput = overrideInput ?? req.input
     const { ok } = await claudeClient.respondPermission(
-      req.turnId, req.id, decision, decision === 'allow' ? { input: req.input } : undefined,
+      req.turnId, req.id, decision, decision === 'allow' ? { input: sendInput } : undefined,
     )
     const outcome = permissionResponseOutcome(ok)
     if (outcome.dequeue) setPermissionQueue((q) => q.filter((r) => r.id !== req.id))
@@ -1000,6 +1004,10 @@ export default function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const bootDone = hydrated && claudeOk
+  const bootStep = !hydrated ? 'sessions' : 'cli'
+  const bootElapsed = useBootTimer(!bootDone)
+
   const centerView = (() => {
     switch (activity) {
       case 'tasks':
@@ -1155,15 +1163,21 @@ export default function App(): JSX.Element {
         onAnnounce={setLiveStatus}
       />
 
-      {pendingPermission && (
+      {pendingPermission && pendingPermission.tool === 'AskUserQuestion' ? (
+        <AskUserQuestionPrompt
+          request={pendingPermission}
+          onAnswer={(answeredInput) => void decidePermission(pendingPermission, 'allow', answeredInput)}
+          onDeny={() => void decidePermission(pendingPermission, 'deny')}
+          th={th}
+        />
+      ) : pendingPermission ? (
         <PermissionPrompt
           request={pendingPermission}
-          onDecide={(decision) => decidePermission(pendingPermission, decision)}
+          onDecide={(decision) => void decidePermission(pendingPermission, decision)}
           onAlwaysAllow={() => alwaysAllowPermission(pendingPermission)}
           th={th}
         />
-      )}
-
+      ) : null}
 
       {modelSuggestion && (
         <ModelSuggestion
@@ -1174,6 +1188,8 @@ export default function App(): JSX.Element {
           th={th}
         />
       )}
+
+      <BootScreen step={bootStep} elapsed={bootElapsed} visible={!bootDone} />
     </div>
   )
 }

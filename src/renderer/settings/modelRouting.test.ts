@@ -11,7 +11,6 @@ import {
   type Suggestion,
 } from './modelRouting'
 
-const TIERS: Tier[] = ['haiku', 'sonnet', 'opus', 'fable']
 
 describe('tier maps', () => {
   it('orders haiku < sonnet < opus < fable', () => {
@@ -20,12 +19,14 @@ describe('tier maps', () => {
     expect(TIER_ORDER.opus).toBeLessThan(TIER_ORDER.fable)
   })
 
-  it('TIER_TO_MODEL_ID → modelIdToTier round-trips for every tier', () => {
-    for (const t of TIERS) expect(modelIdToTier(TIER_TO_MODEL_ID[t])).toBe(t)
+  it('TIER_TO_MODEL_ID → modelIdToTier round-trips for available tiers', () => {
+    const available: Tier[] = ['haiku', 'sonnet', 'opus']
+    for (const t of available) expect(modelIdToTier(TIER_TO_MODEL_ID[t])).toBe(t)
   })
 
-  it('maps the real fable picker id to the CLI-bound id', () => {
-    expect(TIER_TO_MODEL_ID.fable).toBe('fable-5')
+  it('fable maps to opus-4-8 (unavailable — graceful fallback)', () => {
+    expect(TIER_TO_MODEL_ID.fable).toBe('opus-4-8')
+    expect(modelIdToTier('fable-5')).toBe('opus')
     expect(TIER_TO_MODEL_ID.opus).toBe('opus-4-8')
   })
 
@@ -59,9 +60,9 @@ describe('suggestModelHeuristic', () => {
     ...extra,
   })
 
-  it('routes a clear architecture/concurrency prompt to fable (high)', () => {
+  it('routes a clear architecture/concurrency prompt to opus (high; fable unavailable)', () => {
     const s = suggestModelHeuristic(ctx('Redesign the system architecture for concurrency safety'))
-    expect(s.tier).toBe('fable')
+    expect(s.tier).toBe('opus')
     expect(s.confidence).toBe('high')
     expect(s.needsClassifier).toBe(false)
   })
@@ -79,15 +80,15 @@ describe('suggestModelHeuristic', () => {
     expect(s.confidence).toBe('medium')
   })
 
-  it('a pasted error trace alone bumps up one tier (medium), not straight to fable', () => {
+  it('a pasted error trace alone bumps up one tier (medium); capped at opus', () => {
     const s = suggestModelHeuristic(ctx('why does this happen', { hasErrorTrace: true }))
-    expect(s.tier).toBe('fable') // one up from opus resting
+    expect(s.tier).toBe('opus') // up() is capped at opus (fable unavailable)
     expect(s.confidence).toBe('medium')
   })
 
-  it('error trace + a hard keyword → fable (high)', () => {
+  it('error trace + a hard keyword → opus (high; fable unavailable)', () => {
     const s = suggestModelHeuristic(ctx('debug this', { hasErrorTrace: true }))
-    expect(s.tier).toBe('fable')
+    expect(s.tier).toBe('opus')
     expect(s.confidence).toBe('high')
   })
 
@@ -100,8 +101,8 @@ describe('suggestModelHeuristic', () => {
 
   it('Thai hard-keyword prompt routes up (keyword set is not English-only)', () => {
     const s = suggestModelHeuristic(ctx('ช่วยออกแบบสถาปัตยกรรมของระบบใหม่ให้หน่อย'))
-    expect(TIER_ORDER[s.tier]).toBeGreaterThan(TIER_ORDER.opus - 1) // opus or fable
-    expect(s.tier).toBe('fable')
+    expect(s.tier).toBe('opus') // fable unavailable — caps at opus
+    expect(s.confidence).toBe('high')
   })
 
   it('long no-signal prompt (e.g. Thai prose) → low confidence → needs classifier', () => {
@@ -145,7 +146,7 @@ describe('decideRouting', () => {
     const d = decideRouting(sug('fable', 'medium'), 'opus', 'suggest', false)
     expect(d.action).toBe('confirm')
     expect(d.tier).toBe('fable')
-    expect(d.modelId).toBe('fable-5')
+    expect(d.modelId).toBe('opus-4-8') // fable → opus fallback
   })
 
   it('suggest mode: low-confidence downgrade stays silent at resting', () => {
@@ -172,13 +173,14 @@ describe('decideRouting', () => {
     expect(d.modelId).toBe('sonnet-4-6')
   })
 
-  it('auto mode: NEVER auto-escalates to fable — it still confirms', () => {
+  it('auto mode: fable suggestion silently falls back to opus (fable unavailable)', () => {
     const d = decideRouting(sug('fable', 'high'), 'opus', 'auto', false)
-    expect(d.action).toBe('confirm')
+    expect(d.action).toBe('silent')
     expect(d.tier).toBe('fable')
+    expect(d.modelId).toBe('opus-4-8') // actual model used
   })
 
-  it('auto mode: an upgrade to opus (not fable) applies silently', () => {
+  it('auto mode: an upgrade to opus applies silently', () => {
     const d = decideRouting(sug('opus', 'high'), 'sonnet', 'auto', false)
     expect(d.action).toBe('silent')
     expect(d.tier).toBe('opus')

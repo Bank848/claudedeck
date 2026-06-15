@@ -3,8 +3,13 @@ import { parseClassifierResult, buildClassifyArgs, type Tier } from './modelClas
 
 describe('parseClassifierResult (strict allow-list; unmatched → resting, never fable)', () => {
   it('parses a bare tier word', () => {
-    expect(parseClassifierResult('fable', 'opus')).toBe('fable')
+    expect(parseClassifierResult('opus', 'haiku')).toBe('opus')
     expect(parseClassifierResult('haiku', 'opus')).toBe('haiku')
+  })
+
+  it('fable is no longer a tier → resting (Fable banned, removed from allow-list)', () => {
+    expect(parseClassifierResult('fable', 'opus')).toBe('opus')
+    expect(parseClassifierResult('fable', 'sonnet')).toBe('sonnet')
   })
 
   it('tolerates casing / punctuation / surrounding whitespace', () => {
@@ -30,9 +35,9 @@ describe('parseClassifierResult (strict allow-list; unmatched → resting, never
     expect(parseClassifierResult('operassonnetish', 'opus')).toBe('opus')
   })
 
-  it('returns one of the four tiers for every input', () => {
+  it('returns one of the three live tiers for every input', () => {
     const out: Tier = parseClassifierResult('whatever', 'opus')
-    expect(['haiku', 'sonnet', 'opus', 'fable']).toContain(out)
+    expect(['haiku', 'sonnet', 'opus']).toContain(out)
   })
 })
 
