@@ -76,7 +76,7 @@ export default function SessionsPanel(props: SessionsPanelProps): JSX.Element {
       {onNew && (
         <button
           type="button"
-          onClick={onNew}
+          onClick={() => onNew()}
           aria-label="New session"
           className="mx-2 mb-1 mt-2 flex items-center gap-1.5 rounded-md bg-accent px-2 py-1.5 text-left text-xs font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
