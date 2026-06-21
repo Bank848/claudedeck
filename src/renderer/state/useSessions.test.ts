@@ -40,6 +40,20 @@ describe('sessionsReducer', () => {
     expect(s0.sessions[0].messages.length).toBe(0)
   })
 
+  it('startTurn refreshes updatedAt so the active session bubbles to the top', () => {
+    const s0 = stateWithSession('x')
+    expect(s0.sessions[0].updatedAt).toBe('')
+    const before = Date.now()
+    const s1 = sessionsReducer(s0, {
+      type: 'startTurn', sessionId: 'x', userMessage: userMsg, assistantMessage: asstMsg,
+    })
+    const ts = Date.parse(s1.sessions[0].updatedAt)
+    expect(Number.isNaN(ts)).toBe(false)
+    expect(ts).toBeGreaterThanOrEqual(before)
+    // immutability: original untouched
+    expect(s0.sessions[0].updatedAt).toBe('')
+  })
+
   it('event folds into the streaming assistant message and captures the session id', () => {
     let s = stateWithSession('x')
     s = sessionsReducer(s, { type: 'startTurn', sessionId: 'x', userMessage: userMsg, assistantMessage: asstMsg })

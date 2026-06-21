@@ -71,6 +71,7 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
       return patchSession(state, action.sessionId, (s) => ({
         ...s,
         status: 'running',
+        updatedAt: new Date().toISOString(), // bubble the actively-chatting session to the top of the sorted list immediately
         forkPending: undefined,
         attention: undefined, // a fresh turn clears any prior needsInput/unread on this session
         messages: [...s.messages, action.userMessage, action.assistantMessage],
