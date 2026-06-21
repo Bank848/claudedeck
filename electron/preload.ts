@@ -172,7 +172,7 @@ const api = {
   /** Per-session attention: title badge count + gated OS notifications (transient). */
   attention: {
     setCount: (n: number): void => ipcRenderer.send('app:set-attention-count', n),
-    notify: (msg: { kind: 'needsInput' | 'done'; name: string; sessionId: string }): void =>
+    notify: (msg: { kind: 'needsInput' | 'done' | 'limitWarning'; name: string; sessionId: string }): void =>
       ipcRenderer.send('app:notify', msg),
     onFocusSession: (cb: (m: { sessionId: string }) => void): (() => void) => sub('app:focus-session', cb),
   },
@@ -194,7 +194,8 @@ const api = {
     save: (s: Record<string, unknown>): Promise<{ ok: boolean }> => ipcRenderer.invoke('settings:save', s),
   },
 
-  /** On-demand OAuth usage fetch (never polls; fetch only when the Usage view mounts). */
+  /** OAuth usage fetch. The renderer (UsageFeedProvider) polls this on an interval so
+   *  the Usage page, header pill, and near-limit warning all share one feed. */
   usage: {
     fetch: (): Promise<UsageResult> => ipcRenderer.invoke('usage:fetch'),
   },

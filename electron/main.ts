@@ -490,9 +490,12 @@ function registerIpc(): void {
       // Validate the renderer payload at the trust boundary: `kind` is the only field
       // that branches behavior, and an out-of-contract value (e.g. an IndicatorKind
       // like 'unread') would silently emit a wrong toast.
-      if (!msg || (msg.kind !== 'needsInput' && msg.kind !== 'done')) return
-      // Only notify when the window is NOT focused; otherwise the in-app dot suffices.
-      if (!mainWindow || mainWindow.isFocused()) return
+      if (!msg || (msg.kind !== 'needsInput' && msg.kind !== 'done' && msg.kind !== 'limitWarning')) return
+      if (!mainWindow) return
+      // Routine done/needsInput toasts are redundant while the window is focused (the
+      // in-app dot suffices), but a near-limit warning is worth surfacing regardless —
+      // the in-app banner only shows on the Usage view.
+      if (msg.kind !== 'limitWarning' && mainWindow.isFocused()) return
       if (!Notification.isSupported()) return
       const { title, body } = notificationContent(msg.kind, msg.name || '')
       const n = new Notification({ title, body })
