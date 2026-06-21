@@ -8,6 +8,7 @@ import {
   buildInitialize,
   buildUserMessage,
   buildControlResponse,
+  mergeAllowInput,
   parseControlRequest,
   isResultEvent,
   isControlFrame,
@@ -361,9 +362,11 @@ export async function startTurn(win: BrowserWindow, a: StartTurnArgs): Promise<{
  * Answer a pending can_use_tool request for a turn by writing a control_response
  * to its still-open stdin. On `allow` we echo the input MAIN parsed (pendingInput),
  * NOT the renderer's `opts.input` — a compromised renderer can't rewrite an
- * approved tool call (CRIT-2b). `opts.input` is only a fallback on a map miss
- * (race), preserving honest behaviour. `message` (deny) is the reason. Returns
- * false if the turn is gone / stdin shut.
+ * approved tool call (CRIT-2b). The one sanctioned exception is the AskUserQuestion
+ * `answers` payload, which only exists in the renderer: mergeAllowInput layers just
+ * that field onto the original (see its doc). `opts.input` is the wholesale fallback
+ * on a map miss (race). `message` (deny) is the reason. Returns false if the turn is
+ * gone / stdin shut.
  */
 export function respondPermission(
   turnId: string,
@@ -375,7 +378,7 @@ export function respondPermission(
   if (!proc?.stdin || proc.stdin.writableEnded) return false
   const original = pendingInput.get(turnId)?.get(id)
   const safeOpts = decision === 'allow'
-    ? { input: original ?? opts?.input ?? {} }
+    ? { input: mergeAllowInput(original, opts?.input) }
     : { message: opts?.message }
   proc.stdin.write(buildControlResponse(id, decision, safeOpts) + '\n', 'utf8')
   pendingInput.get(turnId)?.delete(id)

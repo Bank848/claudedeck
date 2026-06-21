@@ -77,6 +77,29 @@ export interface ControlResponseOpts {
   message?: string
 }
 
+/**
+ * Compute the `updatedInput` echoed back on `allow`.
+ *
+ * Security (CRIT-2b): a compromised renderer must not be able to rewrite the tool
+ * call MAIN parsed, so we ALWAYS start from `original` (the input captured from the
+ * can_use_tool request). The single sanctioned exception is the AskUserQuestion
+ * answer payload: the user's selections / free-text "Other" exist ONLY in the
+ * renderer, so the renderer is allowed to contribute the `answers` field — and
+ * nothing else — on top of the original input. Every other field is taken from
+ * `original`, so the renderer cannot alter `questions` (or any other tool's args).
+ *
+ * On a `pendingInput` map miss (a race where MAIN never stored the original) we fall
+ * back to the renderer input wholesale, preserving the previous honest behaviour.
+ */
+export function mergeAllowInput(original: unknown, rendererInput: unknown): unknown {
+  if (original === null || typeof original !== 'object') {
+    return rendererInput ?? original ?? {}
+  }
+  const answers = (rendererInput as { answers?: unknown } | null | undefined)?.answers
+  if (answers === undefined) return original
+  return { ...(original as Record<string, unknown>), answers }
+}
+
 /** Build the control_response line answering a can_use_tool request. */
 export function buildControlResponse(
   id: string,

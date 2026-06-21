@@ -4,6 +4,7 @@ import {
   buildUserMessage,
   parseControlRequest,
   buildControlResponse,
+  mergeAllowInput,
   isResultEvent,
 } from './permissionProtocol'
 
@@ -15,6 +16,35 @@ describe('buildInitialize', () => {
     expect(o.type).toBe('control_request')
     expect(o.request.subtype).toBe('initialize')
     expect(typeof o.request_id).toBe('string')
+  })
+})
+
+describe('mergeAllowInput', () => {
+  it('layers the renderer answers onto the original AskUserQuestion input', () => {
+    const original = { questions: [{ question: 'Pick one', options: [{ label: 'A' }] }] }
+    const rendererInput = { ...original, answers: { 'Pick one': 'A' } }
+    const merged = mergeAllowInput(original, rendererInput) as Record<string, unknown>
+    expect(merged.answers).toEqual({ 'Pick one': 'A' })
+    expect(merged.questions).toBe(original.questions) // original fields preserved
+  })
+
+  it('ignores everything except answers — renderer cannot rewrite other fields (CRIT-2b)', () => {
+    const original = { questions: ['real'], secret: 'keep' }
+    const rendererInput = { questions: ['HACKED'], secret: 'pwned', answers: { q: 'x' } }
+    const merged = mergeAllowInput(original, rendererInput) as Record<string, unknown>
+    expect(merged.questions).toEqual(['real'])
+    expect(merged.secret).toBe('keep')
+    expect(merged.answers).toEqual({ q: 'x' })
+  })
+
+  it('returns the original untouched when the renderer supplies no answers', () => {
+    const original = { command: 'ls' }
+    expect(mergeAllowInput(original, { command: 'rm -rf /' })).toBe(original)
+  })
+
+  it('falls back to the renderer input on a map miss (no original)', () => {
+    expect(mergeAllowInput(undefined, { foo: 1 })).toEqual({ foo: 1 })
+    expect(mergeAllowInput(undefined, undefined)).toEqual({})
   })
 })
 

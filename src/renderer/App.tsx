@@ -1168,6 +1168,7 @@ export default function App(): JSX.Element {
           request={pendingPermission}
           onAnswer={(answeredInput) => void decidePermission(pendingPermission, 'allow', answeredInput)}
           onDeny={() => void decidePermission(pendingPermission, 'deny')}
+          onSkip={() => void decidePermission(pendingPermission, 'deny')}
           th={th}
         />
       ) : pendingPermission ? (
