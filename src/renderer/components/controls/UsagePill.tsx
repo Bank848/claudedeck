@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { USAGE } from '@/mock/fixtures'
 import { Popover, usePopover } from '../Pill'
+import { formatResetsIn, type UsageWindow } from '@/state/usage'
+import { useUsageFeed } from '@/state/useUsageFeed'
 
 /** Claude context-window size (tokens) used as the ring denominator. */
 const CONTEXT_LIMIT = 200_000
@@ -19,10 +20,18 @@ export function UsagePill({ tokens }: UsagePillProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   usePopover(open, () => setOpen(false), wrapRef)
+  const { state } = useUsageFeed()
 
   const ctxPct = pct(tokens, CONTEXT_LIMIT)
   const ring = `conic-gradient(rgb(var(--accent)) ${ctxPct * 3.6}deg, rgb(var(--surface-2)) 0deg)`
-  const claude = USAGE.providers.find((p) => p.provider === 'claude')
+  const now = new Date()
+  const planRows: { label: string; window: UsageWindow }[] =
+    state.status === 'ready'
+      ? [
+          ...(state.data.fiveHour ? [{ label: '5-hour limit', window: state.data.fiveHour }] : []),
+          ...(state.data.sevenDay ? [{ label: 'Weekly limit', window: state.data.sevenDay }] : []),
+        ]
+      : []
 
   return (
     <div className="relative" ref={wrapRef}>
@@ -54,20 +63,26 @@ export function UsagePill({ tokens }: UsagePillProps): JSX.Element {
                 <div className="h-full rounded-full bg-accent" style={{ width: `${ctxPct}%` }} />
               </div>
             </div>
-            {claude && (
-              <div className="space-y-1.5 border-t border-border pt-2">
-                <span className="font-medium text-fg">Plan usage</span>
-                {claude.windows.map((w) => (
-                  <div key={w.id} className="flex items-center justify-between text-fg-muted">
-                    <span>{w.label}</span>
-                    <span className="font-mono">
-                      {pct(w.used, w.limit)}% · resets {w.resetsIn}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="text-[11px] text-fg-muted opacity-70">Plan figures are sample data.</p>
+            <div className="space-y-1.5 border-t border-border pt-2">
+              <span className="font-medium text-fg">Plan usage</span>
+              {state.status === 'loading' && (
+                <p className="text-fg-muted">Loading…</p>
+              )}
+              {state.status === 'error' && (
+                <p className="text-fg-muted">{state.error}</p>
+              )}
+              {state.status === 'ready' && planRows.length === 0 && (
+                <p className="text-fg-muted">No active rate-limit windows.</p>
+              )}
+              {planRows.map(({ label, window: w }) => (
+                <div key={label} className="flex items-center justify-between text-fg-muted">
+                  <span>{label}</span>
+                  <span className="font-mono">
+                    {Math.round(w.utilization)}% · resets {formatResetsIn(w.resetsAt, now)}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </Popover>
       )}

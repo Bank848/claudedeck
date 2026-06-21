@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { Gauge, Clock, CalendarDays, RefreshCw } from 'lucide-react'
+import { Gauge, Clock, CalendarDays, RefreshCw, AlertTriangle } from 'lucide-react'
 import { formatResetsIn, type RealUsage, type UsageWindow } from '@/state/usage'
-
-const POLL_MS = 30 * 60 * 1_000
+import { useUsageFeed } from '@/state/useUsageFeed'
+import { WARN_THRESHOLD, warnLabel, type WarnKey } from '@/state/usageWarning'
 
 function barColor(p: number): string {
   if (p >= 90) return 'bg-destructive'
@@ -10,36 +9,9 @@ function barColor(p: number): string {
   return 'bg-success'
 }
 
-type State =
-  | { status: 'loading' }
-  | { status: 'error'; error: string; lastUpdated?: Date }
-  | { status: 'ready'; data: RealUsage; lastUpdated: Date }
-
 export default function UsageView(): JSX.Element {
-  const [state, setState] = useState<State>({ status: 'loading' })
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const load = useCallback((silent = false) => {
-    if (!silent) setState((prev) => prev.status === 'ready' ? prev : { status: 'loading' })
-    let live = true
-    window.claudedeck.usage.fetch().then((r) => {
-      if (!live) return
-      setState(r.ok
-        ? { status: 'ready', data: r.usage, lastUpdated: new Date() }
-        : { status: 'error', error: r.error, lastUpdated: new Date() })
-    })
-    return () => { live = false }
-  }, [])
-
-  useEffect(() => {
-    const cleanup = load()
-    timerRef.current = setInterval(() => load(true), POLL_MS)
-    return () => {
-      cleanup?.()
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [load])
-
+  const { state, refresh } = useUsageFeed()
+  const load = refresh
   const now = new Date()
 
   return (
@@ -124,8 +96,32 @@ function ReadyContent({ data, now }: { data: RealUsage; now: Date }): JSX.Elemen
     )
   }
 
+  const nearLimit: WarnKey[] = [
+    ...(fiveHour && fiveHour.utilization >= WARN_THRESHOLD ? (['fiveHour'] as const) : []),
+    ...(sevenDay && sevenDay.utilization >= WARN_THRESHOLD ? (['sevenDay'] as const) : []),
+  ]
+
   return (
     <div className="space-y-4">
+      {nearLimit.length > 0 && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-fg"
+        >
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
+          <div>
+            <p className="font-medium">Approaching your usage limit</p>
+            <p className="text-fg-muted">
+              {nearLimit
+                .map((k) => {
+                  const w = k === 'fiveHour' ? fiveHour : sevenDay
+                  return `${warnLabel(k)} at ${Math.round(w!.utilization)}% (resets in ${formatResetsIn(w!.resetsAt, now)})`
+                })
+                .join(' · ')}
+            </p>
+          </div>
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         {fiveHour && (
           <WindowCard label="5-hour limit" icon="clock" window={fiveHour} now={now} />
