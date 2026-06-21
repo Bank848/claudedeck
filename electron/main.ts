@@ -422,10 +422,16 @@ function createMainWindow(): void {
     const elapsed = Date.now() - bootStart
     const wait = Math.max(0, MIN_SPLASH_MS - elapsed)
     setTimeout(() => {
-      splashWindow?.close()
+      // The window may have been destroyed before this timer fires (app
+      // quitting, user closed it, or app:pick-directory destroyed the splash).
+      // Optional chaining only guards null — a destroyed-but-non-null window
+      // still throws "Object has been destroyed", so check isDestroyed().
+      if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
       splashWindow = null
-      mainWindow?.show()
-      mainWindow?.focus()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show()
+        mainWindow.focus()
+      }
     }, wait)
   }
 
