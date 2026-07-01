@@ -12,7 +12,7 @@ const base: StartTurnArgs = {
 describe('toCliModel (B2 — fixture id → valid --model)', () => {
   it('maps ClaudeDeck ids to CLI aliases', () => {
     expect(toCliModel('opus-4-8')).toBe('opus')
-    expect(toCliModel('sonnet-4-6')).toBe('sonnet')
+    expect(toCliModel('sonnet-5')).toBe('sonnet')
     expect(toCliModel('haiku-4-5')).toBe('haiku')
     expect(toCliModel('fable-5')).toBe('claude-fable-5')
   })

@@ -274,7 +274,7 @@ export default function App(): JSX.Element {
     })),
     // Model by spoken name → drives the Composer's local selection.
     { phrases: ['model opus', 'opus', 'โมเดลโอปุส', 'โอปุส'], run: () => composerRef.current?.setModel('opus-4-8'), confirm: th ? 'โมเดลโอปุส' : 'Opus', label: '“opus” / “โอปุส”' },
-    { phrases: ['model sonnet', 'sonnet', 'โมเดลซอนเน็ต', 'ซอนเน็ต'], run: () => composerRef.current?.setModel('sonnet-4-6'), confirm: th ? 'โมเดลซอนเน็ต' : 'Sonnet', label: '“sonnet” / “ซอนเน็ต”' },
+    { phrases: ['model sonnet', 'sonnet', 'โมเดลซอนเน็ต', 'ซอนเน็ต'], run: () => composerRef.current?.setModel('sonnet-5'), confirm: th ? 'โมเดลซอนเน็ต' : 'Sonnet', label: '”sonnet” / “ซอนเน็ต”' },
     { phrases: ['model haiku', 'haiku', 'โมเดลไฮกุ', 'ไฮกุ'], run: () => composerRef.current?.setModel('haiku-4-5'), confirm: th ? 'โมเดลไฮกุ' : 'Haiku', label: '“haiku” / “ไฮกุ”' },
     // Reasoning effort by spoken level (TH+EN) → drives the Composer's local effort.
     ...EFFORT_OPTIONS.map<VoiceCommand>((o) => ({

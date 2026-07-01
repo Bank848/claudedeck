@@ -170,7 +170,7 @@ describe('decideRouting', () => {
     const d = decideRouting(sug('sonnet', 'medium'), 'opus', 'auto', false)
     expect(d.action).toBe('silent')
     expect(d.tier).toBe('sonnet')
-    expect(d.modelId).toBe('sonnet-4-6')
+    expect(d.modelId).toBe('sonnet-5')
   })
 
   it('auto mode: fable suggestion silently falls back to opus (fable unavailable)', () => {

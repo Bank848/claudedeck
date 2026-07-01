@@ -18,7 +18,7 @@ const ORDERED: Tier[] = ['haiku', 'sonnet', 'opus', 'fable']
 /** Internal Tier → ClaudeDeck picker id (the value handed to claude.start({model})). */
 export const TIER_TO_MODEL_ID: Record<Tier, string> = {
   haiku: 'haiku-4-5',
-  sonnet: 'sonnet-4-6',
+  sonnet: 'sonnet-5',
   opus: 'opus-4-8',
   fable: 'opus-4-8', // fable is unavailable — fallback to opus
 }
@@ -28,7 +28,7 @@ export function modelIdToTier(id: string | undefined): Tier {
   switch (id) {
     case 'haiku-4-5':
       return 'haiku'
-    case 'sonnet-4-6':
+    case 'sonnet-5':
       return 'sonnet'
     case 'fable-5':
       return 'opus' // fable is unavailable — treat as opus

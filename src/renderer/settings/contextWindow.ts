@@ -3,7 +3,7 @@ import type { TurnUsage } from '@/cli/types'
 /** Effective context window per model id (ClaudeDeck picker ids). Default 200k. */
 const CONTEXT_WINDOW: Record<string, number> = {
   'opus-4-8': 200_000,
-  'sonnet-4-6': 200_000,
+  'sonnet-5': 200_000,
   'haiku-4-5': 200_000,
 }
 export const DEFAULT_WINDOW = 200_000

@@ -172,12 +172,12 @@ function probe(): Promise<string | null> {
  */
 const MODEL_ALIASES: Record<string, string> = {
   'opus-4-8': 'opus',
-  'sonnet-4-6': 'sonnet',
+  'sonnet-5': 'sonnet',
   'haiku-4-5': 'haiku',
   'fable-5': 'claude-fable-5',
 }
 const CLI_MODELS = new Set(['opus', 'sonnet', 'haiku', 'claude-fable-5',
-  'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'])
+  'claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'])
 export function toCliModel(id?: string): string | undefined {
   if (!id) return undefined
   if (id in MODEL_ALIASES) return MODEL_ALIASES[id]

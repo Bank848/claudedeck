@@ -35,7 +35,7 @@ export interface ModelOption {
 export const MODELS: ModelOption[] = [
   { id: 'fable-5', provider: 'claude', label: 'Claude Fable 5', sublabel: 'ไม่พร้อมใช้งาน', unavailable: true },
   { id: 'opus-4-8', provider: 'claude', label: 'Claude Opus 4.8', sublabel: 'Deepest reasoning' },
-  { id: 'sonnet-4-6', provider: 'claude', label: 'Claude Sonnet 4.6', sublabel: 'Best all-round' },
+  { id: 'sonnet-5', provider: 'claude', label: 'Claude Sonnet 5', sublabel: 'Best all-round' },
   { id: 'haiku-4-5', provider: 'claude', label: 'Claude Haiku 4.5', sublabel: 'Fast & cheap' },
 ]
 
@@ -389,7 +389,7 @@ export const SESSIONS: Session[] = [
     title: 'API rate limiter',
     cwd: 'D:/projects/api-gateway',
     status: 'idle',
-    model: 'Sonnet 4.6',
+    model: 'Sonnet 5',
     updatedAt: '2026-06-06T08:40:00Z',
     tokens: 21940,
     messages: [
@@ -618,7 +618,7 @@ export const USAGE: UsageStats = {
       ],
       models: [
         { label: 'Claude Opus 4.8', tokens: 2_640_000 },
-        { label: 'Claude Sonnet 4.6', tokens: 980_000 },
+        { label: 'Claude Sonnet 5', tokens: 980_000 },
         { label: 'Claude Haiku 4.5', tokens: 90_000 },
       ],
     },
