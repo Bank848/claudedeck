@@ -15,13 +15,34 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      # electron-builder names the Release after package.json `version`, NOT the
+      # git tag. Tagging v0.2.0 while package.json says 0.2.0-beta.1 would ship a
+      # mismatched release, so fail fast unless the tag equals `v<version>`.
+      - name: Verify tag matches package.json version
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          if ("v$v" -ne "${{ github.ref_name }}") {
+            Write-Error "Tag ${{ github.ref_name }} != package.json v$v"; exit 1
+          }
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run typecheck
       - run: npm run build
+      # Any tag with a `-` (e.g. v0.2.0-beta.1) is a pre-release. EP_PRE_RELEASE
+      # tells electron-builder's GitHub publisher to create the Release with
+      # prerelease:true — which keeps beta builds out of stable users' update
+      # feed (electron-updater only offers pre-releases to pre-release runtimes).
+      # Tradeoff: a `prerelease` release is published immediately (draft:false),
+      # bypassing the manual draft-publish gate that stable tags still go through.
+      - name: Mark pre-release builds
+        if: contains(github.ref_name, '-')
+        shell: pwsh
+        run: echo "EP_PRE_RELEASE=true" >> $env:GITHUB_ENV
       - run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -31,3 +52,13 @@ jobs:
           # CSC_LINK: ${{ secrets.CSC_LINK }}                 # base64-encoded .pfx
           # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }} # .pfx password
           # ── or Azure Trusted Signing: add azure/trusted-signing-action here ─
+      # Guard against a "successful" build that silently dropped update metadata:
+      # without latest.yml/blockmap/app-update.yml, electron-updater clients can't
+      # detect or differentially download the update.
+      - name: Assert update artifacts exist
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          if (-not (Test-Path "release/$v/latest.yml")) { Write-Error 'latest.yml missing'; exit 1 }
+          if (-not (Get-ChildItem "release/$v" -Filter '*.blockmap')) { Write-Error 'blockmap missing (differential updates dead)'; exit 1 }
+          if (-not (Test-Path "release/$v/win-unpacked/resources/app-update.yml")) { Write-Error 'app-update.yml missing'; exit 1 }
