@@ -605,8 +605,11 @@ function registerIpc(): void {
     async () => {
       // quitAndInstall terminates the app → this reply never reaches the renderer.
       // The renderer must treat app-exit (not a resolved promise) as success.
-      // (false, true) = don't be silent, force-run the installer after quit.
-      if (app.isPackaged) (await getUpdater()).quitAndInstall(false, true)
+      // (true, true) = silent install (NSIS /S) + relaunch — matches the silent
+      // autoInstallOnAppQuit path so both install routes behave the same. No UAC
+      // prompt: nsis.perMachine=false. First-install wizard (oneClick:false) is
+      // unaffected — this only controls the *update* run.
+      if (app.isPackaged) (await getUpdater()).quitAndInstall(true, true)
       return { ok: true }
     },
     () => ({ ok: false }),
