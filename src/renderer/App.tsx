@@ -1080,7 +1080,7 @@ export default function App(): JSX.Element {
         onToggleBottom={() => setBottomOpen((v) => !v)}
       />
 
-      <UpdateBanner />
+      <UpdateBanner onGoToSettings={go('settings')} />
       <LoginBanner auth={auth} />
 
       <div className="flex min-h-0 flex-1">

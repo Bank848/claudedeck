@@ -6,8 +6,20 @@ import { checkForUpdate, openExternal } from '@/settings/appInfo'
  * Non-blocking "update available" banner. Checks GitHub Releases once on mount
  * (via the main process) and renders only when a newer version exists. Silent on
  * failure / offline / browser preview. Dismissible for the session.
+ *
+ * The action button routes to the real updater instead of hand-downloading: when
+ * the electron-updater bridge is live (`window.claudedeck?.updater`), it navigates
+ * to Settings — where the in-app updater UI and its own Releases-page fallback live
+ * — so an NSIS install can differential-update itself rather than being sent to the
+ * browser for a full installer + SmartScreen prompt. Only when the bridge is absent
+ * (browser preview) does it fall back to `openExternal`. One owner per control: the
+ * banner never duplicates download/progress UI.
  */
-export default function UpdateBanner(): JSX.Element | null {
+export default function UpdateBanner({
+  onGoToSettings,
+}: {
+  onGoToSettings: () => void
+}): JSX.Element | null {
   const [update, setUpdate] = useState<{ latest: string; url: string } | null>(null)
   const [dismissed, setDismissed] = useState(false)
 
@@ -25,6 +37,10 @@ export default function UpdateBanner(): JSX.Element | null {
 
   if (!update || dismissed) return null
 
+  // Bridge live → route to the in-app updater in Settings; absent (browser
+  // preview) → open the Releases page directly. Same check picks the label.
+  const hasUpdater = typeof window !== 'undefined' && Boolean(window.claudedeck?.updater)
+
   return (
     <div
       role="status"
@@ -36,10 +52,10 @@ export default function UpdateBanner(): JSX.Element | null {
       </span>
       <button
         type="button"
-        onClick={() => openExternal(update.url)}
+        onClick={() => (hasUpdater ? onGoToSettings() : openExternal(update.url))}
         className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
       >
-        ดาวน์โหลด
+        {hasUpdater ? 'อัปเดต' : 'ดาวน์โหลด'}
       </button>
       <button
         type="button"
