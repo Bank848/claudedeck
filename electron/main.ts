@@ -21,21 +21,11 @@ import { loadIndex, saveIndex, readTranscript, type StoredSession } from './sess
 import { loadSettings, saveSettings } from './settingsStore'
 import { safeSend, safeHandle, errMsg } from './ipc'
 import { notificationContent, type NotifyKind } from './attentionNotify'
+import { isNewer } from './version'
 
 const isDev = !app.isPackaged
 const MIN_SPLASH_MS = 1100
 const REPO = 'Bank848/claudedeck'
-
-/** True if dotted-numeric version `a` is strictly newer than `b` (e.g. 0.2.0 > 0.1.0). */
-function isNewer(a: string, b: string): boolean {
-  const pa = a.split('.').map((n) => parseInt(n, 10) || 0)
-  const pb = b.split('.').map((n) => parseInt(n, 10) || 0)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
-    if (d !== 0) return d > 0
-  }
-  return false
-}
 
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
